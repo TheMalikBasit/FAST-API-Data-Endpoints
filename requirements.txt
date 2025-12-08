@@ -1,0 +1,30 @@
+# Core Framework and Web Server
+fastapi~=0.104.1
+uvicorn[standard]~=0.23.2
+
+python-multipart
+# Database Connectivity (PostgreSQL)
+# SQLAlchemy is the Object-Relational Mapper (ORM)
+sqlalchemy~=2.0.22
+# asyncpg is the high-performance async driver for PostgreSQL
+asyncpg~=0.28.0
+
+# Data Validation and Configuration
+# Pydantic is already included with FastAPI, but good practice to list
+pydantic~=2.4.2
+
+pydantic-settings
+pydantic[email]
+# python-dotenv is for managing environment variables (DB credentials, secrets)
+python-dotenv~=1.0.0
+
+# Security and Authentication
+# python-jose for JWT implementation (Device Tokens, User Access)
+python-jose[cryptography]~=3.3.0
+# passlib is for secure password hashing (for the 'users' table)
+passlib[bcrypt]~=1.7.4
+bcrypt<4.0.0,>=3.1.0
+
+# Database Migrations (Crucial for a production app)
+# Alembic manages changes to your database schema safely
+alembic~=1.12.0

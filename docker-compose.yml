@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  # ----------------------------------------------------
+  # 1. PostgreSQL Database Service
+  # ----------------------------------------------------
+  db:
+    image: postgres:15-alpine # Use a small, stable PostgreSQL image
+    restart: always
+    env_file: ./.env
+    environment:
+      # These variables pull the necessary credentials from your .env file
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      # Persist data to the host machine volume for safety
+      - postgres_data:/var/lib/postgresql/data/
+    ports:
+      # Expose the DB port only if you need to connect from outside the Docker network (e.g., local pgAdmin)
+      - "5432:5432"
+    healthcheck:
+      # Check if the DB is ready before starting the API
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------
+  # 2. FastAPI Application Service
+  # ----------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api # Use the Dockerfile created in Step 2
+    restart: always
+    env_file: ./.env
+    ports:
+      # Expose the API port to the outside world
+      - "8000:8000"
+    depends_on:
+      # Ensure the DB is fully ready before the API tries to connect
+      db:
+        condition: service_healthy
+    # Important environment variable for the API to connect to the DB container
+    environment:
+      POSTGRES_SERVER: db # Use the service name 'db' instead of '127.0.0.1'
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # SECRET_KEY and other necessary configs are pulled from .env
+
+  # ----------------------------------------------------
+  # 3. Optional: Adminer (DB Web Interface)
+  # ----------------------------------------------------
+  adminer:
+    image: adminer:latest
+    restart: always
+    ports:
+      # Access this dashboard at http://localhost:8080
+      - "8080:8080"
+    depends_on:
+      - db
+
+# Define volumes for persistent data storage
+volumes:
+  postgres_data:
