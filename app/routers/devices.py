@@ -8,11 +8,13 @@ from app.db.database import get_db
 from app.models.device import Device, Organization
 from app.models.camera import Camera, CameraRule
 from app.core.security import create_device_token # Import token generation function
-from app.schemas.device import DeviceHandshakeSchema, RTSPStreamSchema, DeviceProvisionSchema, ProvisionResponseSchema
+from app.schemas.device import DeviceHandshakeSchema, RTSPStreamSchema, DeviceProvisionSchema, ProvisionResponseSchema, DeviceResponse
 from app.models.base import BaseModel # Import Base model to create new rules
 from app.models.camera import CameraRule as CameraRuleModel
-
+from app.core.dependencies import get_current_active_user
+from sqlalchemy.future import select
 router = APIRouter(prefix="/devices", tags=["Devices"])
+from app.models.user import User
 
 # Dependency to check Device Authentication (will be expanded later for real token validation)
 async def get_device_by_token(
@@ -184,3 +186,19 @@ async def provision_new_device(
         "device_token_secret": secure_token,
         "message": f"Organization '{data.organization_name}' created with device '{data.device_name}'."
     }
+
+@router.get("/list", response_model=List[DeviceResponse])
+async def list_organization_devices(
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """Retrieves all devices/cameras belonging to the authenticated user's organization."""
+
+    # Filter devices by the user's organization ID (Multi-Tenancy Enforced)
+    stmt = select(Device).where(
+        Device.organization_id == current_user.organization_id
+    )
+    result = await db.execute(stmt)
+    devices = result.scalars().all()
+
+    return devices

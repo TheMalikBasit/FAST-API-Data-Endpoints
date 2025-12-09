@@ -47,3 +47,46 @@ class ProvisionResponseSchema(BaseModel):
     # This is the secret key used for the Edge Docker deployment (VERY sensitive!)
     device_token_secret: str
     message: str = "Device and organization provisioned successfully."
+
+class DeviceResponse(BaseModel):
+    """Output model for listing Edge Devices/Cameras."""
+    id: UUID
+    organization_id: UUID
+    name: str
+    status: str
+
+    # Critical: Include rule fields for the frontend to know current config
+    require_helmet: Optional[bool] = False
+    require_vest: Optional[bool] = False
+    require_gloves: Optional[bool] = False
+
+    # Schema for the rule update payload (Simplified, no drawing zone)
+    class CameraRuleUpdate(BaseModel):
+        device_id: UUID
+        name: str
+        require_helmet: bool = False
+        require_vest: bool = False
+        require_gloves: bool = False
+
+    model_config = {
+        "from_attributes": True
+    }
+
+class CameraRuleUpdate(BaseModel):
+    """Input model for updating rules for a specific camera (simplified)."""
+    device_id: UUID  # The ID of the camera/Edge Device being configured
+
+    # New: Allow changing the human-readable name
+    name: str = Field(..., max_length=255)
+
+    # Required PPE (used by the ML model)
+    require_helmet: bool = False
+    require_vest: bool = False
+    require_gloves: bool = False
+
+    # NOTE: DetectionZone and detection_zone list are REMOVED.
+
+class CameraRuleResponse(BaseModel):
+    """Output model for the successful camera rule update."""
+    device_id: UUID
+    message: str = "Camera rules updated successfully."

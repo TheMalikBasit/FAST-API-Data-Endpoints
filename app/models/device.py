@@ -29,6 +29,7 @@ class Device(BaseModel):
     )
 
     name = Column(String(255), nullable=False)
+    status = Column(String(50), default="Offline", nullable=False) # <--- THIS IS REQUIRED
     device_token_secret = Column(String(255), unique=True, nullable=False) # The secure auth token
     last_heartbeat = Column(TIMESTAMP(timezone=True)) # To monitor system health
 
