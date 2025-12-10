@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.db.database import get_db
@@ -11,6 +11,7 @@ from typing import Dict, Any
 from uuid import UUID
 from typing import Dict, Any, Optional, List
 from datetime import datetime
+from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/events", tags=["Events"])
 
@@ -68,28 +69,77 @@ async def log_violation(
 
 @router.get("/violations", response_model=List[ViolationResponseSchema])
 async def get_violation_logs(
-        # Get current user is now a dependency that enforces authentication
         current_user: User = Depends(get_current_active_user),
         db: AsyncSession = Depends(get_db),
-        # Add optional filters for the dashboard
-        camera_id: Optional[UUID] = None,
-        start_date: Optional[datetime] = None
+        limit: int = Query(20, ge=1, le=100),
 ):
+    """Retrieves recent violations for the authenticated organization, joining Camera data."""
+
+    # 1. Complex Multi-Tenancy Join Query
+    # Join Violation (V) with Camera (C) to get the required context fields
+    stmt = select(
+        Violation,
+        Camera.name.label("camera_name"),
+        Camera.location.label("room_name") # Assumes location field is now on Camera model
+    ).join(
+        Camera, Violation.camera_id == Camera.id
+    ).where(
+        Violation.organization_id == current_user.organization_id
+    ).order_by(
+        Violation.timestamp_utc.desc()
+    ).limit(limit)
+
+    results = await db.execute(stmt)
+
+    violations_with_context = []
+
+    for violation, camera_name, room_name in results.all():
+        # 2. Map violation_type to a UI-friendly severity (CRITICAL, HIGH, etc.)
+        severity = "low"
+        violation_type = violation.violation_type.upper() # Standardize violation type
+
+        if violation_type in ["MISSING_HELMET", "FIRE_EXIT_BLOCKED"]:
+            severity = "critical"
+        elif violation_type in ["RESTRICTED_AREA", "MISSING_VEST"]:
+            severity = "high"
+
+        # 3. Combine data for Pydantic validation
+        violations_with_context.append(ViolationResponseSchema.model_validate({
+            # Direct mapping from Violation model
+            "id": violation.id,
+            "timestamp_utc": violation.timestamp_utc,
+            "violation_type": violation.violation_type,
+            "snapshot_url": violation.snapshot_url, # Maps to snapshot_url
+            "duration_seconds": violation.duration_seconds,
+            "is_resolved": violation.is_resolved,
+
+            # Derived/Joined fields
+            "severity": severity,
+            "camera_name": camera_name,
+            "room_name": room_name,
+        }))
+
+    return violations_with_context
+
+@router.get("/status/ml", tags=["Health"], response_model=Dict[str, Any])
+async def get_ml_status():
     """
-    Retrieves all violation logs filtered by the authenticated user's organization.
+    Simulates checking the connection and latency to the downstream ML service.
+    (In a real app, this pings the actual ML server.)
     """
 
-    # Base query filtered by the user's organization ID (Crucial for multi-tenancy!)
-    stmt = select(Violation).where(Violation.organization_id == current_user.organization_id)
+    # Mocking the real-time check result:
+    status = "Online"
+    latency_ms = 45 # Mock latency value
 
-    # Apply optional filters
-    if camera_id:
-        stmt = stmt.where(Violation.camera_id == camera_id)
-    if start_date:
-        stmt = stmt.where(Violation.timestamp_utc >= start_date)
+    # We can fetch the last heartbeat of the Edge Docker here (from the devices table)
+    # For now, we return a mock status mirroring your UI.
 
-    # Order by newest first
-    stmt = stmt.order_by(Violation.timestamp_utc.desc())
-
-    result = await db.execute(stmt)
-    return result.scalars().all() # Return the list of violation objects
+    return JSONResponse(content={
+        "status": status,
+        "latency_ms": latency_ms,
+        "last_sync": (datetime.now() - timedelta(seconds=2)).isoformat(),
+        "gpu_load": 67, # Mock GPU load
+        "storage_used_gb": 234, # Mock storage usage
+        "storage_total_gb": 300
+    })

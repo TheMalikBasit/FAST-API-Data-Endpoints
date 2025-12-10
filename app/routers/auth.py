@@ -13,6 +13,7 @@ from app.schemas.user import UserResponse, UserCreate
 from app.core.security import verify_password, create_access_token, get_password_hash, create_device_token
 from app.core.dependencies import get_current_active_user
 from app.core.config import settings
+from typing import List
 
 # Router definition
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -94,6 +95,7 @@ async def register_organization(
     hashed_password = get_password_hash(data.admin_password)
     new_admin = User(
         organization_id=new_org.id,
+        username=data.admin_username, # <--- NEW FIELD MAPPED
         email=data.admin_email,
         password_hash=hashed_password,
         role="GlobalAdmin",
@@ -161,12 +163,20 @@ async def create_new_user(
             detail="A user with this email already exists."
         )
 
+    # 2. Check for duplicate username
+    # username_exists_stmt = select(User).where(User.username == new_user_data.username.lower())
+    # if (await db.execute(username_exists_stmt)).scalar_one_or_none():
+    #     raise HTTPException(
+    #         status_code=status.HTTP_400_BAD_REQUEST,
+    #         detail="A user with this username already exists."
+    #     )
+
     # 3. Hash Password and Create User
     hashed_password = get_password_hash(new_user_data.password)
 
     new_user = User(
-        # The new user MUST be linked to the admin's organization
         organization_id=current_user.organization_id,
+        username=new_user_data.username, # <--- NEW FIELD MAPPED
         email=new_user_data.email.lower(),
         password_hash=hashed_password,
         role=new_user_data.role,
@@ -177,3 +187,22 @@ async def create_new_user(
     await db.refresh(new_user)
 
     return new_user
+
+@router.get("/users/list", response_model=List[UserResponse])
+async def list_organization_users(
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """
+    Retrieves all users belonging to the authenticated user's organization.
+    (Protected and Multi-Tenant filtered)
+    """
+
+    # Select all users where the organization_id matches the authenticated user's organization_id
+    stmt = select(User).where(
+        User.organization_id == current_user.organization_id
+    )
+    result = await db.execute(stmt)
+    users = result.scalars().all()
+
+    return users

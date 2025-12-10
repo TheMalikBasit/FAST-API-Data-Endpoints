@@ -16,6 +16,7 @@ class OrganizationRegister(BaseModel):
     device_name: str = Field(..., max_length=255)
 
     # Initial Admin User Credentials
+    admin_username: str = Field(..., min_length=3, max_length=100)
     admin_email: EmailStr
     admin_password: str = Field(..., min_length=8)
 

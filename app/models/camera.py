@@ -29,6 +29,7 @@ class Camera(BaseModel):
     device = relationship("Device", back_populates="cameras")
     rules = relationship("CameraRule", uselist=False, back_populates="camera") # One-to-one relationship
     violations = relationship("Violation", back_populates="camera") # One camera has many violations
+    location = Column(String(255), nullable=True)
 
 # --- CameraRule Model ---
 class CameraRule(BaseModel):
