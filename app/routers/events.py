@@ -10,7 +10,7 @@ from app.core.dependencies import get_current_active_user
 from typing import Dict, Any
 from uuid import UUID
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/events", tags=["Events"])

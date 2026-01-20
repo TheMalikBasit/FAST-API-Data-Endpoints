@@ -1,37 +1,36 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import func, delete
 from typing import List
 from uuid import UUID
 import uuid
 from app.db.database import get_db
 from app.models.device import Device, Organization
 from app.models.camera import Camera, CameraRule
-from app.core.security import create_device_token # Import token generation function
+from app.models.capabilities import OrganizationCapability
+from app.schemas.capabilities import CapabilitySyncRequest
+from app.core.security import create_device_token # This contains token generation function
 from app.schemas.device import DeviceHandshakeSchema, RTSPStreamSchema, DeviceProvisionSchema, ProvisionResponseSchema, DeviceResponse
-from app.models.base import BaseModel # Import Base model to create new rules
+from app.models.base import BaseModel
 from app.models.camera import CameraRule as CameraRuleModel
 from app.core.dependencies import get_current_active_user
 from sqlalchemy.future import select
-router = APIRouter(prefix="/devices", tags=["Devices"])
 from app.models.user import User
 
-# Dependency to check Device Authentication (will be expanded later for real token validation)
+router = APIRouter(prefix="/devices", tags=["Devices"])
+
+# Dependency to check Device Authentication (Still needs working)
 async def get_device_by_token(
         device_token: str, db: AsyncSession = Depends(get_db)
 ) -> Device:
     """Authenticates the device using its secret token."""
-    # Build the SQLAlchemy select statement (2.0 style)
+    # This Builds the SQLAlchemy select statement (2.0 style)
     stmt = select(Device).where(Device.device_token_secret == device_token)
-
-    # Execute the statement asynchronously
-    result = await db.execute(stmt)
-
-    # Get the Device object, if it exists
-    device = result.scalars().first()
+    result = await db.execute(stmt) # This executes the statement asynchronously
+    device = result.scalars().first() # Getting the Device object, if it exists
 
     if not device:
-        # Raise 403 Forbidden if the token is invalid
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Invalid device token or device is inactive."
@@ -45,16 +44,13 @@ async def handshake(
 ):
     """
     Handles initial device authentication, heartbeat, and local camera registration.
-
-    Performs a single-pass UPSERT (Update/Insert) for cameras based on RTSP URL.
     """
-
     # Authenticate the device using the token from the request payload
     device = await get_device_by_token(data.device_token_secret, db)
 
     # 1. Update Device Heartbeat/Hostname (Health Check)
     device.last_heartbeat = func.now()
-    device.name = data.hostname # Update hostname in case the local name changed
+    device.name = data.hostname # Updates hostname in case the local name changed
 
     # 2. Register/Update Cameras
     for camera_data in data.cameras:
@@ -66,17 +62,17 @@ async def handshake(
         existing_camera = (await db.execute(camera_stmt)).scalars().first()
 
         if existing_camera:
-            # Camera exists (UPDATE): Update status and name if needed
+            # Camera exists (UPDATE METHOD): Update the status and name if needed
             existing_camera.status = "Online"
-            await db.commit() # Commit update
+            await db.commit()
         else:
-            # Camera is new (INSERT): Create the new Camera record
+            # Camera is new (INSERT METHOD): Create the new Camera record
             new_camera = Camera(
                 organization_id=device.organization_id,
                 device_id=device.id,
                 name=camera_data.local_name or str(camera_data.rtsp_url),
                 rtsp_url=str(camera_data.rtsp_url),
-                local_timezone="UTC", # Default, will be updated by admin later
+                local_timezone="UTC",
                 status="Online"
             )
             db.add(new_camera)
@@ -95,6 +91,35 @@ async def handshake(
 
     return {"status": "success", "device_id": device.id, "message": "Cameras synchronized."}
 
+@router.post("/capabilities/sync")
+async def sync_capabilities(
+        payload: CapabilitySyncRequest,
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """
+    Called by the Edge ML model to register its detection classes in the Cloud DB.
+    """
+    org_id = current_user.organization_id
+
+    # 1. This clears the existing capabilities/objects in Cloud DB to ensure the list is fresh
+    delete_stmt = delete(OrganizationCapability).where(OrganizationCapability.organization_id == org_id)
+    await db.execute(delete_stmt)
+
+    # 2. Insert new capabilities
+    for obj in payload.capabilities:
+        new_cap = OrganizationCapability(
+            organization_id=org_id,
+            object_code=obj.object_code,
+            display_name=obj.display_name,
+            is_ppe=obj.is_ppe
+        )
+        db.add(new_cap)
+
+    await db.commit()
+    return {"status": "success", "synced_count": len(payload.capabilities)}
+
+
 @router.get("/config/{device_id}")
 async def get_device_config(
         device_id: UUID,
@@ -102,7 +127,7 @@ async def get_device_config(
 ):
     """Retrieves all configuration (RTSP URL, rules, zones) for a specific device."""
 
-    # 1. Check if device exists (and we could add user/token check here for security)
+    # 1. Check if device exists
     device_stmt = select(Device).where(Device.id == device_id)
     device_result = await db.execute(device_stmt)
     device = device_result.scalars().first()
@@ -110,23 +135,21 @@ async def get_device_config(
     if not device:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found.")
 
-    # 2. Select Cameras and their Rules (JOIN)
-    # This complex query fetches Cameras and their related CameraRules in one go.
+    # 2. Select Cameras and their Rules
     stmt = select(Camera, CameraRule).join(CameraRule).where(Camera.device_id == device_id)
-
     results = await db.execute(stmt)
 
-    # Process results into a structured list for the Edge Docker
+    # 3. Process results for Edge Docker
     config_list = []
     for camera, rules in results.all():
         config_list.append({
             "camera_id": camera.id,
             "rtsp_url": camera.rtsp_url,
-            "required_ppe": {
-                "helmet": rules.ppe_helmet_required,
-                "vest": rules.ppe_vest_required,
-                "glasses": rules.ppe_glasses_required,
-            },
+
+            # --- FIX APPLIED: Using Dynamic Rules now ---
+            # Instead of hardcoded "helmet" objects, we are sending the entire JSON map
+            # The Edge PC will check: if rules['required_ppe'].get('helmet'): ...
+            "required_ppe": rules.active_rules,
             "detection_zones": rules.detection_zones or [],
             "cooldown_sec": rules.violation_cooldown_sec,
             "is_active": rules.is_active
@@ -202,3 +225,31 @@ async def list_organization_devices(
     devices = result.scalars().all()
 
     return devices
+
+@router.post("/capabilities/sync")
+async def sync_capabilities(
+        capabilities: List[dict],  # List of {'object_code': str, 'display_name': str, 'is_ppe': bool}
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_db)
+):
+    """
+    Called by the Edge ML model to register its detection classes in the Cloud DB.
+    """
+    org_id = current_user.organization_id
+
+    # Clear existing capabilities to ensure the list is fresh for the current model version
+    delete_stmt = delete(OrganizationCapability).where(OrganizationCapability.organization_id == org_id)
+    await db.execute(delete_stmt)
+
+    # Insert new capabilities
+    for cap in capabilities:
+        new_cap = OrganizationCapability(
+            organization_id=org_id,
+            object_code=cap['object_code'],
+            display_name=cap['display_name'],
+            is_ppe=cap.get('is_ppe', False)
+        )
+        db.add(new_cap)
+
+    await db.commit()
+    return {"status": "success", "synced_count": len(capabilities)}

@@ -1,15 +1,15 @@
-# app/routers/config.py
-
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 from app.db.database import get_db
 from app.models.user import User
 from app.models.device import Device
-from app.schemas.device import DeviceResponse, CameraRuleUpdate, CameraRuleResponse
+from app.models.camera import Camera, CameraRule
+from app.schemas.device import CameraRuleUpdate, CameraRuleResponse
 from app.core.dependencies import get_current_active_user
-from sqlalchemy.future import select
 
 router = APIRouter(prefix="/config", tags=["Configuration"])
+
 
 @router.post("/rules", response_model=CameraRuleResponse)
 async def update_camera_rules(
@@ -17,38 +17,37 @@ async def update_camera_rules(
         current_user: User = Depends(get_current_active_user),
         db: AsyncSession = Depends(get_db)
 ):
-    """
-    Updates the safety rules and name for an Edge Device (camera).
-    Requires GlobalAdmin or Supervisor role.
-    """
-
-    # 1. Authorization Check (RBAC)
+    # 1. Authorization Check
     if current_user.role not in ["GlobalAdmin", "Supervisor"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only Global Admins or Supervisors can configure camera rules."
-        )
+        raise HTTPException(status_code=403, detail="Not authorized.")
 
-    # 2. Multi-Tenancy Check & Device Retrieval
-    stmt = select(Device).where(
-        Device.id == rules_data.device_id,
-        Device.organization_id == current_user.organization_id
+    # 2. Fetch CameraRule (Same logic as before)
+    stmt = select(CameraRule).join(Camera).where(
+        CameraRule.camera_id == rules_data.camera_id,
+        Camera.organization_id == current_user.organization_id
     )
-    device = (await db.execute(stmt)).scalar_one_or_none()
+    result = await db.execute(stmt)
+    rule = result.scalars().first()
 
-    if not device:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Device not found or does not belong to your organization."
-        )
+    if not rule:
+        raise HTTPException(status_code=404, detail="Camera not found.")
 
-    # 3. Apply Updates (Simplified rules and name)
-    device.name = rules_data.name
-    device.require_helmet = rules_data.require_helmet
-    device.require_vest = rules_data.require_vest
-    device.require_gloves = rules_data.require_gloves
-    # NOTE: The edge processor needs to pull these changes later.
+    # 3. DYNAMIC UPDATE
+    # We directly save the dictionary the frontend sent.
+    # Frontend logic: "User checked Helmet box? Send {'helmet': true}"
+    rule.active_rules = rules_data.active_rules
+
+    # 4. Update Name
+    camera_stmt = select(Camera).where(Camera.id == rules_data.camera_id)
+    cam = (await db.execute(camera_stmt)).scalars().first()
+    if cam:
+        cam.name = rules_data.name
 
     await db.commit()
+    await db.refresh(rule)
 
-    return {"device_id": device.id, "message": "Camera rules updated successfully."}
+    return CameraRuleResponse(
+        camera_id=rule.camera_id,
+        name=cam.name,
+        active_rules=rule.active_rules
+    )

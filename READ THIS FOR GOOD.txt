@@ -1,0 +1,15 @@
+This project only supports python 10 and 11 cuz it contain certain libraries so dont fuck with python version
+And we are explicitly using python 11
+Follow this procedure whenever you are setting up API
+1: Delete old venv folder
+2: Run this python -m venv venv
+3: Make sure you have docker installed
+4: Run this docker-compose up --build
+
+And to run only API in pycharm terminal do this
+1: Delete old venv folder
+2: Run this python -m venv venv
+3: Run this pip install --no-cache-dir -r requirements.txt
+4: Run this uvicorn app.main:app --reload
+
+May GOD help you go through this HELL with ease

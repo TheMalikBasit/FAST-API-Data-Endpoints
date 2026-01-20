@@ -1,5 +1,5 @@
 # Dockerfile.api - Builds the Central FastAPI Application
-FROM python:3.10-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
@@ -23,7 +23,6 @@ COPY ./app /app/app
 # Expose the port Uvicorn will run on
 EXPOSE 8000
 
-# Command to run the application using uvicorn.
 # We disable --reload in production for stability and specify binding to 0.0.0.0.
 # The command waits until the 'db' service is ready (via docker-compose healthcheck/depends_on).
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
