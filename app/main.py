@@ -4,7 +4,7 @@ from app.db.database import engine
 from app.models.base import Base # Import Base for table creation (development only)
 from app.core.config import settings
 from starlette.middleware.cors import CORSMiddleware
-from app.routers import devices, events, auth, config
+from app.routers import devices, events, auth, config, analytics
 # This block is for development purposes only.
 # In production, you would use Alembic for migrations.
 async def create_db_tables():
@@ -61,6 +61,7 @@ app.include_router(devices.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(config.router, prefix="/api/v1")
+app.include_router(analytics.router, prefix="/api/v1")
 @app.get("/")
 async def root():
     return {"message": "Welcome to the PPE Detection API v1.0"}

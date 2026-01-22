@@ -5,82 +5,96 @@ from app.db.database import get_db
 from app.models.user import User
 from app.models.violation import Violation
 from app.models.camera import Camera
-from app.schemas.violation import ViolationCreateSchema, ViolationResponseSchema
-from app.core.dependencies import get_current_active_user
-from typing import Dict, Any
-from uuid import UUID
-from typing import Dict, Any, Optional, List
+from app.models.device import Device
+# UPDATED: Import the new schemas we defined
+from app.schemas.events import ViolationReportSchema, ViolationResponse
+from app.core.dependencies import get_current_active_user, get_device_by_token
+from typing import Dict, Any, List
 from datetime import datetime, timedelta
 from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/events", tags=["Events"])
 
+
 # This function would be expanded to handle Email/SMS notifications
-def trigger_alert(violation_data: ViolationCreateSchema):
+def trigger_alert(violation_data: ViolationReportSchema):
     """Placeholder for the notification service (Email, SMS, Webhook)."""
-    print(f"ALERT TRIGGERED: {violation_data.violation_type} at {violation_data.timestamp_utc}")
-    # In production: send data to an external queue (e.g., Redis or a dedicated Email Service)
+    print(
+        f"ALERT TRIGGERED: {violation_data.violation_type} (Severity: {violation_data.severity}) at {violation_data.timestamp_utc}")
     pass
 
-# Dependency to check Camera validity and get its organization_id
-async def get_valid_camera_info(camera_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Validates the Camera ID and retrieves required data (especially organization_id)."""
-    stmt = select(Camera).where(Camera.id == camera_id)
+
+@router.post("/violation", status_code=status.HTTP_201_CREATED)
+async def log_violation(
+        report: ViolationReportSchema,  # UPDATED: Use new schema with severity
+        db: AsyncSession = Depends(get_db),
+        # UPDATED: Security Check - Ensure request comes from a valid Edge Device
+        device: Device = Depends(get_device_by_token)
+) -> Dict[str, Any]:
+    """
+    Receives a confirmed violation event from the Edge Device and logs it.
+    """
+
+    # 1. Security & Context Check
+    # Verify the camera exists AND belongs to the authenticating device
+    stmt = select(Camera).where(
+        Camera.id == report.camera_id,
+        Camera.device_id == device.id  # Security: Device cannot report for others
+    )
     result = await db.execute(stmt)
     camera = result.scalars().first()
 
     if not camera:
-        # A 404 implies the Edge Docker sent an ID for a camera that doesn't exist centrally
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invalid Camera ID in violation report.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Camera ID not found or does not belong to this device."
+        )
 
-    # Return the organization_id needed for the Violation record
-    return camera.organization_id
-
-@router.post("/violation", status_code=status.HTTP_201_CREATED)
-async def log_violation(
-        violation_data: ViolationCreateSchema,
-        db: AsyncSession = Depends(get_db),
-        # Use the validation function as a dependency, and alias its return value
-        organization_id: UUID = Depends(get_valid_camera_info)
-) -> Dict[str, Any]:
-    """Receives a confirmed violation event and logs it to the database."""
-
-    # 1. Create the Violation ORM object
+    # 2. Create the Violation ORM object
     new_violation = Violation(
-        organization_id=organization_id,  # Fetched securely from the dependency
-        camera_id=violation_data.camera_id,
-        timestamp_utc=violation_data.timestamp_utc,
-        violation_type=violation_data.violation_type,
-        person_track_id=violation_data.person_track_id,
-        snapshot_url=str(violation_data.snapshot_url),
-        duration_seconds=violation_data.duration_seconds
+        organization_id=camera.organization_id,  # Derived from Camera (Multi-tenancy)
+        camera_id=report.camera_id,
+        timestamp_utc=report.timestamp_utc,
+        violation_type=report.violation_type,
+
+        # NEW: Save the severity determined by the Edge PC
+        severity=report.severity,
+
+        # NEW: Default status flags
+        is_false_positive=False,
+        is_resolved=False,
+
+        person_track_id=report.person_track_id,
+        snapshot_url=str(report.snapshot_url) if report.snapshot_url else None,
+        duration_seconds=report.duration_seconds
     )
 
-    # 2. Add to session and commit
+    # 3. Add to session and commit
     db.add(new_violation)
     await db.commit()
-    await db.refresh(new_violation) # Refresh to get the generated UUID
+    await db.refresh(new_violation)
 
-    # 3. Trigger Alert (non-blocking)
-    # Note: This should ideally be handed off to a separate worker (like Celery/Redis Queue)
-    trigger_alert(violation_data)
+    # 4. Trigger Alert
+    trigger_alert(report)
 
     return {"status": "success", "violation_id": new_violation.id}
 
-@router.get("/violations", response_model=List[ViolationResponseSchema])
+
+@router.get("/violations", response_model=List[ViolationResponse])
 async def get_violation_logs(
         current_user: User = Depends(get_current_active_user),
         db: AsyncSession = Depends(get_db),
         limit: int = Query(20, ge=1, le=100),
 ):
-    """Retrieves recent violations for the authenticated organization, joining Camera data."""
+    """Retrieves recent violations for the authenticated organization."""
 
-    # 1. Complex Multi-Tenancy Join Query
-    # Join Violation (V) with Camera (C) to get the required context fields
+    # 1. Join Violation with Camera to get context (Room Name / Camera Name)
     stmt = select(
         Violation,
         Camera.name.label("camera_name"),
-        Camera.location.label("room_name") # Assumes location field is now on Camera model
+        # Assuming your Camera model uses 'name' for local name or similar
+        # If you have a 'location' field on Camera, use Camera.location.label("room_name")
+        Camera.name.label("room_name")
     ).join(
         Camera, Violation.camera_id == Camera.id
     ).where(
@@ -94,52 +108,40 @@ async def get_violation_logs(
     violations_with_context = []
 
     for violation, camera_name, room_name in results.all():
-        # 2. Map violation_type to a UI-friendly severity (CRITICAL, HIGH, etc.)
-        severity = "low"
-        violation_type = violation.violation_type.upper() # Standardize violation type
-
-        if violation_type in ["MISSING_HELMET", "FIRE_EXIT_BLOCKED"]:
-            severity = "critical"
-        elif violation_type in ["RESTRICTED_AREA", "MISSING_VEST"]:
-            severity = "high"
+        # 2. UPDATED: No more manual severity calculation!
+        # We read directly from the DB because the Edge PC sent it.
 
         # 3. Combine data for Pydantic validation
-        violations_with_context.append(ViolationResponseSchema.model_validate({
-            # Direct mapping from Violation model
+        violations_with_context.append(ViolationResponse.model_validate({
             "id": violation.id,
+            "organization_id": violation.organization_id,
+            "camera_id": violation.camera_id,
             "timestamp_utc": violation.timestamp_utc,
             "violation_type": violation.violation_type,
-            "snapshot_url": violation.snapshot_url, # Maps to snapshot_url
+            "snapshot_url": violation.snapshot_url,
             "duration_seconds": violation.duration_seconds,
             "is_resolved": violation.is_resolved,
 
-            # Derived/Joined fields
-            "severity": severity,
+            # New Fields
+            "severity": violation.severity,  # <-- Now coming from DB
+            "is_false_positive": violation.is_false_positive,
+
+            # Derived fields
             "camera_name": camera_name,
             "room_name": room_name,
         }))
 
     return violations_with_context
 
-@router.get("/status/ml", tags=["Health"], response_model=Dict[str, Any])
+
+@router.get("/status/ml", tags=["Health"])
 async def get_ml_status():
-    """
-    Simulates checking the connection and latency to the downstream ML service.
-    (In a real app, this pings the actual ML server.)
-    """
-
-    # Mocking the real-time check result:
-    status = "Online"
-    latency_ms = 45 # Mock latency value
-
-    # We can fetch the last heartbeat of the Edge Docker here (from the devices table)
-    # For now, we return a mock status mirroring your UI.
-
+    """Mock Health Check."""
     return JSONResponse(content={
-        "status": status,
-        "latency_ms": latency_ms,
+        "status": "Online",
+        "latency_ms": 45,
         "last_sync": (datetime.now() - timedelta(seconds=2)).isoformat(),
-        "gpu_load": 67, # Mock GPU load
-        "storage_used_gb": 234, # Mock storage usage
+        "gpu_load": 67,
+        "storage_used_gb": 234,
         "storage_total_gb": 300
     })

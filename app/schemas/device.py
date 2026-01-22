@@ -1,8 +1,12 @@
 from pydantic import BaseModel, Field, HttpUrl
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Any
 from uuid import UUID
 
 # --- Schemas for Camera Data sent from Edge PC ---
+class RuleConfig(BaseModel):
+    """Defines the settings for a single object type."""
+    required: bool = False
+    severity: str = "Medium" # Options: Low, Medium, High, Critical
 
 class RTSPStreamSchema(BaseModel):
     """Data model for a single RTSP stream discovered locally on the Edge PC."""
@@ -23,14 +27,14 @@ class DeviceProvisionSchema(BaseModel):
     device_name: str = Field(..., max_length=255)
 
 class ProvisionResponseSchema(BaseModel):
-    """Output model for the provisioning response."""
+    """Output model for the provisioning response. (Front End Usage) """
     organization_id: UUID
     device_id: UUID
     device_token_secret: str # This is the secret key used for the Edge Docker deployment (VERY sensitive!)
     message: str = "Device and organization provisioned successfully."
 
 class DeviceResponse(BaseModel):
-    """Output model for listing Edge Devices/Cameras."""
+    """Output model for listing Edge Devices/Cameras. (Front End Usage) """
     id: UUID
     organization_id: UUID
     name: str
@@ -39,17 +43,15 @@ class DeviceResponse(BaseModel):
 
 class CameraRuleUpdate(BaseModel):
     """Input model for updating rules for a specific CAMERA."""
-    # FIXED: Changed from device_id to camera_id to be precise
     camera_id: UUID
     name: str = Field(..., max_length=255)
-
-    # DYNAMIC MAP: Client sends {"hard_hat": true, "safety_vest": true}
-    # The backend doesn't care what the keys are!
-    active_rules: Dict[str, bool]
+    # Camera accepts a dictionary of RuleConfigs
+    # Example: {"helmet": {"required": true, "severity": "Critical"}}
+    active_rules: Dict[str, RuleConfig]
 
 class CameraRuleResponse(BaseModel):
-    """Output model for the successful camera rule update."""
+    """Output model for the successful camera rule update. (Front End Usage) """
     camera_id: UUID
     name: str
-    active_rules: Dict[str, bool]  # Returns the map back to UI
+    active_rules: Dict[str, RuleConfig]  # Returns the detailed structure back to UI
     message: str = "Camera rules updated successfully."
