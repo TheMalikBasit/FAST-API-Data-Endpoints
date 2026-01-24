@@ -12,4 +12,6 @@ And to run only API in pycharm terminal do this
 3: Run this pip install --no-cache-dir -r requirements.txt
 4: Run this uvicorn app.main:app --reload
 
+To remove the Data from DB (A BAD THING TO DO)
+Run this command
 May GOD help you go through this HELL with ease

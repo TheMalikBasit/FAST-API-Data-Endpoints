@@ -92,8 +92,7 @@ async def get_violation_logs(
     stmt = select(
         Violation,
         Camera.name.label("camera_name"),
-        # Assuming your Camera model uses 'name' for local name or similar
-        # If you have a 'location' field on Camera, use Camera.location.label("room_name")
+        # We also have camera.location (Pending Work Rather to depreciate location and use name or make the use of location entity)
         Camera.name.label("room_name")
     ).join(
         Camera, Violation.camera_id == Camera.id
