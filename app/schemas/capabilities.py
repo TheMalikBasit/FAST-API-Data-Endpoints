@@ -13,3 +13,12 @@ class CapabilityCreate(BaseModel):
 class CapabilitySyncRequest(BaseModel):
     """The list payload sent to /devices/capabilities/sync"""
     capabilities: List[CapabilityCreate]
+
+class CapabilityResponse(BaseModel):
+    """
+    Schema for sending capability data to the Frontend (Manage Page).
+    """
+    object_code: str
+    display_name: str
+    is_ppe: bool
+    model_config = {"from_attributes": True} # This allows Pydantic to read data directly from the SQLAlchemy model
