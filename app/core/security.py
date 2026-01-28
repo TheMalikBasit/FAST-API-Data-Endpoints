@@ -5,7 +5,8 @@ from app.core.config import settings
 # Security libraries for hashing and JWT
 from passlib.context import CryptContext
 from jose import jwt, JWTError
-
+import secrets
+import string
 
 # --- Password Hashing Setup ---
 # CryptContext handles hashing and verifying passwords securely (using bcrypt)
@@ -76,3 +77,7 @@ def create_device_token(device_id: uuid.UUID) -> str:
         token_type="device",
         expires_delta=long_expiry
     )
+
+def generate_otp_code(length: int = 6) -> str:
+    """Generates a secure numeric OTP."""
+    return "".join(secrets.choice(string.digits) for _ in range(length))

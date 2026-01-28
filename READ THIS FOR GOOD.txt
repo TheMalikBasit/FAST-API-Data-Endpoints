@@ -12,7 +12,7 @@ And to run only API in pycharm terminal do this
 3: Run this pip install --no-cache-dir -r requirements.txt
 4: Run this uvicorn app.main:app --reload
 
-Commands to remove images
+Commands to remove and build images
 docker-compose down
 docker-compose up --build
 

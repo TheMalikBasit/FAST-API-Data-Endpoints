@@ -24,30 +24,34 @@ services:
       timeout: 5s
       retries: 5
 
-  # ----------------------------------------------------
+# ----------------------------------------------------
   # 2. FastAPI Application Service
   # ----------------------------------------------------
   api:
     build:
       context: .
-      dockerfile: Dockerfile.api # Use the Dockerfile created in Step 2
+      dockerfile: Dockerfile.api
     restart: always
     env_file: ./.env
     ports:
-      # Expose the API port to the outside world
       - "8000:8000"
     depends_on:
-      # Ensure the DB is fully ready before the API tries to connect
       db:
         condition: service_healthy
-    # Important environment variable for the API to connect to the DB container
     environment:
-      POSTGRES_SERVER: db # Use the service name 'db' instead of '127.0.0.1'
+      # This Connects to the 'db' service defined above
+      POSTGRES_SERVER: db
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      # This Constructs the connection string using variables
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      # SECRET_KEY and other necessary configs are pulled from .env
+
+      # This Pulls Email Credentials from .env
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      MAIL_FROM: ${MAIL_FROM}
+      SECRET_KEY: ${SECRET_KEY}
 
   # ----------------------------------------------------
   # 3. Optional: Adminer (DB Web Interface)
