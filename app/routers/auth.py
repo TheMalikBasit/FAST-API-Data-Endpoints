@@ -168,17 +168,12 @@ async def register_organization(
         data: OrganizationRegister,
         db: AsyncSession = Depends(get_db)
 ):
-    user_exists_stmt = select(User).where(User.email == data.admin_email)
-    if (await db.execute(user_exists_stmt)).scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A user with this email already exists."
-        )
-
+    # 1. Create Organization
     new_org = Organization(name=data.organization_name, status="Active")
     db.add(new_org)
     await db.flush()
 
+    # 2. Hash Password and Create Admin User
     hashed_password = get_password_hash(data.admin_password)
     new_admin = User(
         organization_id=new_org.id,
@@ -190,6 +185,7 @@ async def register_organization(
     )
     db.add(new_admin)
 
+    # 3. Create Edge Device and Token
     new_device_id = UUID(str(uuid.uuid4()))
     secure_token = create_device_token(new_device_id)
 
@@ -208,9 +204,8 @@ async def register_organization(
         "device_id": new_device.id,
         "device_token_secret": secure_token,
         "admin_email": new_admin.email,
-        "message": "Organization, Device, and Admin user created successfully."
+        "message": "Organization created successfully."
     }
-
 
 # --- 3. Method to GET CURRENT USER PROFILE
 @router.get("/users/me", response_model=UserProfileResponse)
@@ -300,16 +295,18 @@ async def create_new_user(
         db: AsyncSession = Depends(get_db)
 ):
     if current_user.role != "GlobalAdmin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only Global Admins can create new user accounts."
-        )
+        raise HTTPException(status_code=403, detail="Only Global Admins can create users.")
 
-    user_exists_stmt = select(User).where(User.email == new_user_data.email.lower())
+    # UPDATED: Check for duplicate email ONLY in the current organization
+    user_exists_stmt = select(User).where(
+        (User.email == new_user_data.email.lower()) &
+        (User.organization_id == current_user.organization_id)
+    )
+
     if (await db.execute(user_exists_stmt)).scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A user with this email already exists."
+            detail="A user with this email already exists in this organization."
         )
 
     hashed_password = get_password_hash(new_user_data.password)

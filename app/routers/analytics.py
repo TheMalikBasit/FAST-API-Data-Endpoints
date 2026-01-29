@@ -15,7 +15,6 @@ from app.core.dependencies import get_current_active_user
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
-
 # --- Helper: Get Available Months ---
 @router.get("/available-months")
 async def get_available_months(
@@ -110,12 +109,13 @@ async def get_dashboard_stats(
                 daily_data[day_label]["total_valid"] += count
                 daily_data[day_label][v_type] = daily_data[day_label].get(v_type, 0) + count
 
-    # Room Stats
+    # Room Stats (UPDATED: Group by LOCATION, not name)
     stmt_room = select(Camera.location, func.count(Violation.id).label("count")) \
         .join(Violation).where(and_(org_filter, date_filter, Violation.is_false_positive == False)) \
         .group_by(Camera.location).order_by(desc("count")).limit(5)
 
     room_results = (await db.execute(stmt_room)).all()
+    # row.location holds the Room Name (e.g., "Surgical Ward")
     chart_by_room = [{"room": row.location or "Unknown", "violations": row.count} for row in room_results]
 
     return {
@@ -129,7 +129,7 @@ async def get_dashboard_stats(
     }
 
 
-# --- 2. Day Detail Endpoint (UPDATED) ---
+# --- 2. Day Detail Endpoint ---
 @router.get("/day-details")
 async def get_day_details(
         date_str: str = Query(..., description="YYYY-MM-DD"),
@@ -183,7 +183,7 @@ async def get_day_details(
             hourly_data[h_idx]["total_violations"] += count
             hourly_data[h_idx][v_type] = hourly_data[h_idx].get(v_type, 0) + count
 
-    # B. Detailed List of Violations
+    # B. Detailed List of Violations (Fetches BOTH Name and Location)
     stmt_list = select(
         Violation,
         Camera.name.label("camera_name"),
@@ -206,14 +206,14 @@ async def get_day_details(
             "type": v.violation_type,
             "severity": v.severity.lower(),
             "timestamp": v.timestamp_utc.strftime("%I:%M %p"),
-            "cameraName": cam_name,
-            "roomName": room_name or "Unknown Location",
+            "cameraName": cam_name or "Unknown Camera", # Specific Camera
+            "roomName": room_name or "Unknown Location", # Room Location
             "imageUrl": v.snapshot_url or "https://via.placeholder.com/150",
             "description": f"{v.violation_type} detected in {room_name or 'Unknown Location'}",
             "is_false_positive": v.is_false_positive
         })
 
-    # C. Daily Room Stats (NEW - Missing in previous version)
+    # C. Daily Room Stats (UPDATED: Group by LOCATION)
     stmt_room = select(Camera.location, func.count(Violation.id).label("count")) \
         .join(Violation).where(and_(org_filter, date_filter, Violation.is_false_positive == False)) \
         .group_by(Camera.location).order_by(desc("count")).limit(5)
