@@ -11,6 +11,9 @@ from app.models.camera import Camera, CameraRule
 from app.models.violation import Violation
 from app.models.capabilities import OrganizationCapability
 from sqlalchemy import text
+import os
+import shutil
+import requests
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -22,14 +25,31 @@ CUSTOM_CAPABILITIES = [
     {"code": "smoking", "name": "Smoking Detected", "is_ppe": False},
 ]
 
-
 async def seed_data():
     async with AsyncSessionLocal() as db:
         print("🌱 Starting Custom Data Seeding...")
 
-        # 0. Clean Slate (Optional: Truncate tables to avoid duplicates if re-running)
+        # Clean Slate
         print("🧹 Clearing old data...")
-        await db.execute(text("TRUNCATE TABLE violations, cameras, users, organizations CASCADE;"))
+        try:
+            await db.execute(text("TRUNCATE TABLE violations, cameras, users, organizations CASCADE;"))
+        except Exception as e:
+            print(f"⚠️ Warning during truncate (might be empty): {e}")
+
+        # --- 0. PREPARE MEDIA STORAGE ---
+        os.makedirs("media", exist_ok=True)
+        placeholder_path = "media/placeholder.jpg"
+
+        if not os.path.exists(placeholder_path):
+            print("📥 Downloading dummy evidence image...")
+            try:
+                response = requests.get("https://placehold.co/600x400/orange/white?text=Violation+Evidence", stream=True)
+                with open(placeholder_path, 'wb') as out_file:
+                    shutil.copyfileobj(response.raw, out_file)
+            except Exception as e:
+                print(f"⚠️ Failed to download placeholder: {e}")
+                with open(placeholder_path, 'wb') as f:
+                    f.write(b"dummy image data")
 
         # 1. Create Organization
         org_id = uuid4()
@@ -75,25 +95,22 @@ async def seed_data():
             )
             db.add(new_cap)
 
-        # ---------------------------------------------------------
-        # 5. Create Cameras (MULTIPLE PER ROOM)
-        # ---------------------------------------------------------
+        # 5. Create Cameras
         print("📷 Creating Cameras with Locations...")
         rooms = ["ICU Entrance", "Surgical Ward", "Medicine Storage", "Staff Cafeteria", "Lobby"]
         cameras = []
 
         for room_name in rooms:
-            # Create 2 cameras for each room to demonstrate aggregation
             for i in range(1, 3):
                 cam_id = uuid4()
-                cam_name = f"{room_name.split(' ')[0]}-Cam-0{i}"  # e.g., ICU-Cam-01
+                cam_name = f"{room_name.split(' ')[0]}-Cam-0{i}"
 
                 cam = Camera(
                     id=cam_id,
                     organization_id=org_id,
                     device_id=device_id,
-                    name=cam_name,  # <--- Specific Camera Name
-                    location=room_name,  # <--- Common Room Name (Grouping Key)
+                    name=cam_name,
+                    location=room_name,
                     rtsp_url=f"rtsp://192.168.1.{random.randint(10, 99)}/stream",
                     status="Online",
                     local_timezone="UTC"
@@ -111,13 +128,20 @@ async def seed_data():
 
         await db.flush()
 
-        # 6. Violations
-        print("⏳ Generating 30 days of violations...")
+        # 6. Generate Violations
+        print("⏳ Generating 30 days of violation history...")
         violations = []
         now = datetime.utcnow()
 
-        severity_map = {"no_mask": "Critical", "no_medical_coat": "High", "no_gloves": "Critical", "no_cap": "Medium",
-                        "smoking": "Critical"}
+        # --- RESTORED SEVERITY MAP ---
+        severity_map = {
+            "no_mask": "Critical",
+            "no_medical_coat": "High",
+            "no_gloves": "Critical",
+            "no_cap": "Medium",
+            "smoking": "Critical"
+        }
+        # -----------------------------
 
         for day in range(30):
             date_cursor = now - timedelta(days=day)
@@ -136,7 +160,7 @@ async def seed_data():
                     severity=severity_map.get(v_code, "Medium"),
                     is_false_positive=random.choices([True, False], weights=[0.1, 0.9])[0],
                     is_resolved=random.choice([True, False]),
-                    snapshot_url="https://via.placeholder.com/150",
+                    snapshot_url="placeholder.jpg",
                     duration_seconds=random.uniform(5.0, 60.0)
                 )
                 violations.append(v)
@@ -144,7 +168,6 @@ async def seed_data():
         db.add_all(violations)
         await db.commit()
         print("✅ Data Seeded Successfully!")
-
 
 if __name__ == "__main__":
     asyncio.run(seed_data())

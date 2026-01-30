@@ -1,67 +1,77 @@
+import os
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+
 from app.db.database import engine
-from app.models.base import Base # Import Base for table creation (development only)
+from app.models.base import Base
 from app.core.config import settings
-from starlette.middleware.cors import CORSMiddleware
-from app.routers import devices, events, auth, config, analytics
-# This block is for development purposes only.
-# In production, you would use Alembic for migrations.
+from app.routers import devices, events, auth, config, analytics, media
+
+
+# --- Database Initialization ---
 async def create_db_tables():
     """Creates all database tables defined by SQLAlchemy models."""
+    print("Creation of Database Tables Started...")
     async with engine.begin() as conn:
-        # Use run_sync because metadata operations are synchronous in nature
         await conn.run_sync(Base.metadata.create_all)
+    print("Database Tables Created Successfully.")
 
 
-# Define a lifespan context manager to run code on startup and shutdown
+# --- Lifespan Manager ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Code to run ON STARTUP
-    print("Application Startup: Creating database tables...")
-    # WARNING: Do NOT use create_db_tables() in production. Use Alembic migrations.
+    # 1. Startup Logic
+    print("Application Startup: Checking resources...")
+
+    # Ensure media directory exists for evidence storage
+    os.makedirs("media", exist_ok=True)
+
+    # Create tables (Dev only - Use Alembic in Prod)
     await create_db_tables()
 
     yield
 
-    # Code to run ON SHUTDOWN (optional)
-    print("Application Shutdown: Database connection pool is closing.")
+    # 2. Shutdown Logic
+    print("Application Shutdown: Closing connections.")
 
 
+# --- App Definition ---
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    lifespan=lifespan # Attach the startup/shutdown logic
+    lifespan=lifespan
 )
 
-# --- CRITICAL FIX: Add CORS Middleware ---
-# Define the origins that are allowed to make requests to this API.
-# Allow requests from the Next.js development server (port 3000).
+# --- CORS Middleware ---
 origins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    # Allow the specific IP of the host machine within the Docker network range
-    "http://172.18.0.1",
-    "http://172.0.0.0/8", # Broadly allows all internal Docker addresses (Safest for local dev)
-    # Allows the port that the container might see traffic coming from
-    "http://172.18.0.1:3000",
+    "http://localhost:3000",  # Local React/Next.js
+    "http://127.0.0.1:3000",  # Localhost alternative
+    "http://172.18.0.1:3000",  # Docker Host IP
+    "*"  # Allow all (easiest for dev, restrict in prod)
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,                       # List of allowed origins
-    allow_credentials=True,                      # Allow cookies/authorization headers
-    allow_methods=["*"],                         # Allow all methods (POST, GET, etc.)
-    allow_headers=["*"],                         # Allow all headers (Authorization, Content-Type, etc.)
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-# ----------------------------------------
 
-# Include the routers to activate the endpoints
+# --- Router Registration ---
+# All routers are grouped under /api/v1 for consistency
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(analytics.router, prefix="/api/v1")
+app.include_router(media.router, prefix="/api/v1")
 app.include_router(devices.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
-app.include_router(auth.router, prefix="/api/v1")
 app.include_router(config.router, prefix="/api/v1")
-app.include_router(analytics.router, prefix="/api/v1")
+
 @app.get("/")
 async def root():
-    return {"message": "Welcome to the PPE Detection API v1.0"}
+    return {
+        "message": "Welcome to the Worker Safety API v1.0",
+        "status": "Online",
+        "docs_url": "/docs"
+    }

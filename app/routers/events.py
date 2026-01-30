@@ -1,85 +1,118 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from typing import List, Dict, Any
+from datetime import datetime, timedelta
+import shutil
+import os
+from pathlib import Path
+from uuid import uuid4
+from fastapi.responses import JSONResponse
+
 from app.db.database import get_db
 from app.models.user import User
 from app.models.violation import Violation
 from app.models.camera import Camera
 from app.models.device import Device
-# UPDATED: Import the new schemas we defined
-from app.schemas.events import ViolationReportSchema, ViolationResponse
 from app.core.dependencies import get_current_active_user, get_device_by_token
-from typing import Dict, Any, List
-from datetime import datetime, timedelta
-from fastapi.responses import JSONResponse
+
+# We only need the Response schema now, as the Input is handled by Form() fields
+from app.schemas.events import ViolationResponse
 
 router = APIRouter(prefix="/events", tags=["Events"])
 
-
-# This function would be expanded to handle Email/SMS notifications
-def trigger_alert(violation_data: ViolationReportSchema):
-    """Placeholder for the notification service (Email, SMS, Webhook)."""
-    print(
-        f"ALERT TRIGGERED: {violation_data.violation_type} (Severity: {violation_data.severity}) at {violation_data.timestamp_utc}")
-    pass
+# Define where to store evidence
+MEDIA_ROOT = Path("media")
 
 
+# --- 1. NEW: Handle Violation Upload (Image + Data) ---
 @router.post("/violation", status_code=status.HTTP_201_CREATED)
 async def log_violation(
-        report: ViolationReportSchema,  # UPDATED: Use new schema with severity
-        db: AsyncSession = Depends(get_db),
-        # UPDATED: Security Check - Ensure request comes from a valid Edge Device
-        device: Device = Depends(get_device_by_token)
-) -> Dict[str, Any]:
+        # -- Metadata (Form Fields) --
+        device_token: str = Form(..., description="Secret token of the Edge Device"),
+        camera_id: str = Form(..., description="UUID of the Camera"),
+        violation_type: str = Form(..., description="Code like 'no_helmet'"),
+        severity: str = Form("Medium", description="Critical, High, Medium, Low"),
+        confidence: float = Form(0.0, description="AI Confidence Score (0.0 - 1.0)"),
+
+        # -- The Evidence File --
+        image: UploadFile = File(..., description="Snapshot of the violation"),
+
+        # -- DB Session --
+        db: AsyncSession = Depends(get_db)
+):
     """
-    Receives a confirmed violation event from the Edge Device and logs it.
+    Receives violation alerts from Edge AI devices.
+    Validates the device, saves the image, and logs to DB.
     """
 
-    # 1. Security & Context Check
-    # Verify the camera exists AND belongs to the authenticating device
-    stmt = select(Camera).where(
-        Camera.id == report.camera_id,
-        Camera.device_id == device.id  # Security: Device cannot report for others
-    )
+    # A. Manual Device Authentication
+    # We do this manually here because the token is coming inside the Form Data,
+    # not the Headers (which is what get_device_by_token usually checks).
+    stmt = select(Device).where(Device.device_token_secret == device_token)
     result = await db.execute(stmt)
-    camera = result.scalars().first()
+    device = result.scalars().first()
+
+    if not device:
+        raise HTTPException(status_code=401, detail="Invalid Device Token")
+
+    # B. Validate Camera & Organization
+    stmt_cam = select(Camera).where(Camera.id == camera_id)
+    result_cam = await db.execute(stmt_cam)
+    camera = result_cam.scalars().first()
 
     if not camera:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Camera ID not found or does not belong to this device."
-        )
+        raise HTTPException(status_code=404, detail="Camera not found")
 
-    # 2. Create the Violation ORM object
+    if camera.organization_id != device.organization_id:
+        raise HTTPException(status_code=403, detail="Camera does not belong to your Organization")
+
+    # C. Save Image to Disk
+    # Create folder structure if needed, or just use root media/ for now
+    os.makedirs(MEDIA_ROOT, exist_ok=True)
+
+    # Generate unique filename
+    file_ext = image.filename.split(".")[-1] if "." in image.filename else "jpg"
+    filename = f"violation_{uuid4()}.{file_ext}"
+    file_path = MEDIA_ROOT / filename
+
+    try:
+        # Reset file cursor and save
+        image.file.seek(0)
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(image.file, buffer)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
+
+    # D. Create Database Entry
     new_violation = Violation(
-        organization_id=camera.organization_id,  # Derived from Camera (Multi-tenancy)
-        camera_id=report.camera_id,
-        timestamp_utc=report.timestamp_utc,
-        violation_type=report.violation_type,
-
-        # NEW: Save the severity determined by the Edge PC
-        severity=report.severity,
-
-        # NEW: Default status flags
+        organization_id=device.organization_id,
+        camera_id=camera.id,
+        timestamp_utc=datetime.utcnow(),
+        violation_type=violation_type,
+        severity=severity,
         is_false_positive=False,
         is_resolved=False,
-
-        person_track_id=report.person_track_id,
-        snapshot_url=str(report.snapshot_url) if report.snapshot_url else None,
-        duration_seconds=report.duration_seconds
+        snapshot_url=filename,  # Storing the filename we just created
+        duration_seconds=0.0  # Single frame event
     )
 
-    # 3. Add to session and commit
     db.add(new_violation)
+
+    # Update Device Heartbeat
+    device.last_heartbeat = datetime.utcnow()
+
     await db.commit()
     await db.refresh(new_violation)
 
-    # 4. Trigger Alert
-    trigger_alert(report)
+    return {
+        "status": "recorded",
+        "violation_id": str(new_violation.id),
+        "image_saved": filename
+    }
 
-    return {"status": "success", "violation_id": new_violation.id}
 
-
+# --- 2. EXISTING: List Violations (For Dashboard) ---
 @router.get("/violations", response_model=List[ViolationResponse])
 async def get_violation_logs(
         current_user: User = Depends(get_current_active_user),
@@ -88,12 +121,10 @@ async def get_violation_logs(
 ):
     """Retrieves recent violations for the authenticated organization."""
 
-    # 1. Join Violation with Camera to get context (Room Name / Camera Name)
     stmt = select(
         Violation,
         Camera.name.label("camera_name"),
-        # We also have camera.location (Pending Work Rather to depreciate location and use name or make the use of location entity)
-        Camera.name.label("room_name")
+        Camera.name.label("room_name")  # Fallback to name if location is missing
     ).join(
         Camera, Violation.camera_id == Camera.id
     ).where(
@@ -103,14 +134,10 @@ async def get_violation_logs(
     ).limit(limit)
 
     results = await db.execute(stmt)
-
     violations_with_context = []
 
     for violation, camera_name, room_name in results.all():
-        # 2. UPDATED: No more manual severity calculation!
-        # We read directly from the DB because the Edge PC sent it.
-
-        # 3. Combine data for Pydantic validation
+        # Validate using Pydantic Schema
         violations_with_context.append(ViolationResponse.model_validate({
             "id": violation.id,
             "organization_id": violation.organization_id,
@@ -120,12 +147,8 @@ async def get_violation_logs(
             "snapshot_url": violation.snapshot_url,
             "duration_seconds": violation.duration_seconds,
             "is_resolved": violation.is_resolved,
-
-            # New Fields
-            "severity": violation.severity,  # <-- Now coming from DB
+            "severity": violation.severity,
             "is_false_positive": violation.is_false_positive,
-
-            # Derived fields
             "camera_name": camera_name,
             "room_name": room_name,
         }))
@@ -133,6 +156,7 @@ async def get_violation_logs(
     return violations_with_context
 
 
+# --- 3. EXISTING: Health Check ---
 @router.get("/status/ml", tags=["Health"])
 async def get_ml_status():
     """Mock Health Check."""

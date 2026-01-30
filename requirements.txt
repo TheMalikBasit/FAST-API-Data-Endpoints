@@ -12,3 +12,4 @@ passlib[bcrypt]~=1.7.4
 bcrypt<4.0.0,>=3.1.0
 alembic~=1.12.0
 fastapi-mail
+requests
