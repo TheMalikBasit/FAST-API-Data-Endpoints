@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, case, desc, and_, extract
 from typing import List, Dict, Any
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import calendar
 
 from app.db.database import get_db
@@ -14,6 +14,7 @@ from app.models.device import Organization
 from app.core.dependencies import get_current_active_user
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
+
 
 # --- Helper: Get Available Months ---
 @router.get("/available-months")
@@ -43,22 +44,31 @@ async def get_available_months(
     return months[::-1]
 
 
-# --- 1. Dashboard Stats ---
+# --- 1. Dashboard Stats (Timezone Aware) ---
 @router.get("/dashboard-stats")
 async def get_dashboard_stats(
         month: int = Query(..., ge=1, le=12),
         year: int = Query(..., ge=2020),
+        timezone_offset: int = Query(0, description="Timezone offset in minutes (e.g., 300 for UTC+5)"),
         current_user: User = Depends(get_current_active_user),
         db: AsyncSession = Depends(get_db)
 ):
+    # 1. Calculate Local Start/End for the requested Month
     _, last_day = calendar.monthrange(year, month)
-    start_date = datetime(year, month, 1, 0, 0, 0)
-    end_date = datetime(year, month, last_day, 23, 59, 59)
+    local_start = datetime(year, month, 1, 0, 0, 0)
+    local_end = datetime(year, month, last_day, 23, 59, 59)
+
+    # 2. Shift to UTC for Database Filtering
+    # Formula: UTC = Local - Offset
+    utc_start = local_start - timedelta(minutes=timezone_offset)
+    utc_end = local_end - timedelta(minutes=timezone_offset)
 
     org_filter = (Violation.organization_id == current_user.organization_id)
-    date_filter = and_(Violation.timestamp_utc >= start_date, Violation.timestamp_utc <= end_date)
 
-    # KPI Stats
+    # Filter using the adjusted UTC window
+    date_filter = and_(Violation.timestamp_utc >= utc_start, Violation.timestamp_utc <= utc_end)
+
+    # --- KPI Stats ---
     stmt_stats = select(
         func.count(Violation.id).label("total"),
         func.count(case((Violation.is_resolved == True, 1))).label("resolved"),
@@ -71,9 +81,12 @@ async def get_dashboard_stats(
     valid_total = total - false_pos
     resolution_rate = round(((result_stats.resolved or 0) / total * 100), 1) if total > 0 else 0
 
-    # Trend Query
+    # --- Trend Query (Grouping by Local Day) ---
+    # Shift timestamp to LOCAL time before truncating to day
+    local_ts_col = Violation.timestamp_utc + timedelta(minutes=timezone_offset)
+
     stmt_trend = select(
-        func.date_trunc('day', Violation.timestamp_utc).label("day"),
+        func.date_trunc('day', local_ts_col).label("day"),
         Violation.violation_type,
         Violation.severity,
         Violation.is_false_positive,
@@ -109,13 +122,12 @@ async def get_dashboard_stats(
                 daily_data[day_label]["total_valid"] += count
                 daily_data[day_label][v_type] = daily_data[day_label].get(v_type, 0) + count
 
-    # Room Stats (UPDATED: Group by LOCATION, not name)
+    # --- Room Stats ---
     stmt_room = select(Camera.location, func.count(Violation.id).label("count")) \
         .join(Violation).where(and_(org_filter, date_filter, Violation.is_false_positive == False)) \
         .group_by(Camera.location).order_by(desc("count")).limit(5)
 
     room_results = (await db.execute(stmt_room)).all()
-    # row.location holds the Room Name (e.g., "Surgical Ward")
     chart_by_room = [{"room": row.location or "Unknown", "violations": row.count} for row in room_results]
 
     return {
@@ -129,10 +141,11 @@ async def get_dashboard_stats(
     }
 
 
-# --- 2. Day Detail Endpoint ---
+# --- 2. Day Detail Endpoint (Timezone Aware) ---
 @router.get("/day-details")
 async def get_day_details(
         date_str: str = Query(..., description="YYYY-MM-DD"),
+        timezone_offset: int = Query(0, description="Timezone offset in minutes"),
         current_user: User = Depends(get_current_active_user),
         db: AsyncSession = Depends(get_db)
 ):
@@ -141,15 +154,23 @@ async def get_day_details(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
-    org_filter = (Violation.organization_id == current_user.organization_id)
-    date_filter = and_(
-        Violation.timestamp_utc >= datetime.combine(target_date, datetime.min.time()),
-        Violation.timestamp_utc <= datetime.combine(target_date, datetime.max.time())
-    )
+    # 1. Define Local Window
+    local_start = datetime.combine(target_date, datetime.min.time())
+    local_end = datetime.combine(target_date, datetime.max.time())
 
-    # A. Hourly Trend
+    # 2. Shift to UTC for Querying
+    utc_start = local_start - timedelta(minutes=timezone_offset)
+    utc_end = local_end - timedelta(minutes=timezone_offset)
+
+    org_filter = (Violation.organization_id == current_user.organization_id)
+    date_filter = and_(Violation.timestamp_utc >= utc_start, Violation.timestamp_utc <= utc_end)
+
+    # A. Hourly Trend (Group by Local Hour)
+    # Shift timestamp to Local before extracting hour
+    local_ts_col = Violation.timestamp_utc + timedelta(minutes=timezone_offset)
+
     stmt_hourly = select(
-        extract('hour', Violation.timestamp_utc).label('hour'),
+        extract('hour', local_ts_col).label('hour'),
         Violation.violation_type,
         Violation.severity,
         Violation.is_false_positive,
@@ -183,7 +204,7 @@ async def get_day_details(
             hourly_data[h_idx]["total_violations"] += count
             hourly_data[h_idx][v_type] = hourly_data[h_idx].get(v_type, 0) + count
 
-    # B. Detailed List of Violations (Fetches BOTH Name and Location)
+    # B. Detailed List of Violations
     stmt_list = select(
         Violation,
         Camera.name.label("camera_name"),
@@ -201,19 +222,27 @@ async def get_day_details(
         if v.severity == "Critical": stats["critical"] += 1
         if v.severity == "High": stats["high"] += 1
 
+        # --- FIX: Convert UTC Timestamp to Local Time for Display ---
+        # 1. Get UTC time from DB
+        utc_time = v.timestamp_utc
+        # 2. Add the offset provided by Frontend (e.g., +300 mins)
+        local_time = utc_time + timedelta(minutes=timezone_offset)
+        # 3. Format string
+        formatted_time = local_time.strftime("%I:%M %p")
+
         violations_list.append({
             "id": str(v.id),
             "type": v.violation_type,
             "severity": v.severity.lower(),
-            "timestamp": v.timestamp_utc.strftime("%I:%M %p"),
-            "cameraName": cam_name or "Unknown Camera", # Specific Camera
-            "roomName": room_name or "Unknown Location", # Room Location
+            "timestamp": formatted_time,  # <--- Sending Correct Local Time
+            "cameraName": cam_name or "Unknown Camera",
+            "roomName": room_name or "Unknown Location",
             "imageUrl": v.snapshot_url or "https://via.placeholder.com/150",
             "description": f"{v.violation_type} detected in {room_name or 'Unknown Location'}",
             "is_false_positive": v.is_false_positive
         })
 
-    # C. Daily Room Stats (UPDATED: Group by LOCATION)
+    # C. Daily Room Stats
     stmt_room = select(Camera.location, func.count(Violation.id).label("count")) \
         .join(Violation).where(and_(org_filter, date_filter, Violation.is_false_positive == False)) \
         .group_by(Camera.location).order_by(desc("count")).limit(5)

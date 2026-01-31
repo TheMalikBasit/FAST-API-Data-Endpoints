@@ -10,7 +10,7 @@ services:
       # These variables pull the necessary credentials from your .env file
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB} 
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       # Persist data to the host machine volume for safety
       - postgres_data:/var/lib/postgresql/data/
@@ -35,6 +35,8 @@ services:
     env_file: ./.env
     ports:
       - "8000:8000"
+    volumes:
+      - ./media:/app/media
     depends_on:
       db:
         condition: service_healthy
