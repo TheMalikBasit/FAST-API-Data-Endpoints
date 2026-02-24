@@ -6,9 +6,7 @@ from app.models.base import BaseModel
 class OrganizationCapability(BaseModel):
     __tablename__ = "organization_capabilities"
 
-    # organization_id is required for multi-tenancy
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
-
     object_code = Column(String(100), nullable=False)
     display_name = Column(String(100), nullable=False)
     is_ppe = Column(Boolean, default=False)

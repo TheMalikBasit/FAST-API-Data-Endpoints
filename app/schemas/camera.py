@@ -1,4 +1,3 @@
-# app/schemas/camera.py
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from uuid import UUID

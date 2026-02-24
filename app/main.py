@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from app.db.database import engine
 from app.models.base import Base
 from app.core.config import settings
-from app.routers import devices, events, auth, config, analytics, media
+from app.routers import devices, events, auth, config, analytics, media, cameras, capabilities
 
 
 # --- Database Initialization ---
@@ -65,13 +65,15 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
 app.include_router(media.router, prefix="/api/v1")
 app.include_router(devices.router, prefix="/api/v1")
+app.include_router(cameras.router, prefix="/api/v1")
+app.include_router(capabilities.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
 app.include_router(config.router, prefix="/api/v1")
 
 @app.get("/")
 async def root():
     return {
-        "message": "Welcome to the Worker Safety API v1.0",
+        "message": "Welcome to the Worker Safety Management System API v1.0",
         "status": "Online",
         "docs_url": "/docs"
     }

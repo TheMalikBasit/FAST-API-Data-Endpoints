@@ -12,6 +12,7 @@ class CapabilityCreate(BaseModel):
 
 class CapabilitySyncRequest(BaseModel):
     """The list payload sent to /devices/capabilities/sync"""
+    device_token_secret: str = Field(..., min_length=32)
     capabilities: List[CapabilityCreate]
 
 class CapabilityResponse(BaseModel):

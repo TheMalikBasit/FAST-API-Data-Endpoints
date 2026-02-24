@@ -5,7 +5,6 @@ from sqlalchemy import func, case, desc, and_, extract
 from typing import List, Dict, Any
 from datetime import datetime, date, timedelta
 import calendar
-
 from app.db.database import get_db
 from app.models.user import User
 from app.models.violation import Violation
@@ -122,7 +121,7 @@ async def get_dashboard_stats(
                 daily_data[day_label]["total_valid"] += count
                 daily_data[day_label][v_type] = daily_data[day_label].get(v_type, 0) + count
 
-    # --- Room Stats ---
+    # Room Stats (Note that we are extracting violations count based on locations not cameras, this location can be considered as department based or org preference)
     stmt_room = select(Camera.location, func.count(Violation.id).label("count")) \
         .join(Violation).where(and_(org_filter, date_filter, Violation.is_false_positive == False)) \
         .group_by(Camera.location).order_by(desc("count")).limit(5)

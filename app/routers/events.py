@@ -8,20 +8,17 @@ import os
 from pathlib import Path
 from uuid import uuid4
 from fastapi.responses import JSONResponse
-
 from app.db.database import get_db
 from app.models.user import User
 from app.models.violation import Violation
 from app.models.camera import Camera
 from app.models.device import Device
 from app.core.dependencies import get_current_active_user, get_device_by_token
-
-# We only need the Response schema now, as the Input is handled by Form() fields
 from app.schemas.events import ViolationResponse
 
 router = APIRouter(prefix="/events", tags=["Events"])
 
-# Define where to store evidence
+# Path to store evidence of violation snapshot
 MEDIA_ROOT = Path("media")
 
 
