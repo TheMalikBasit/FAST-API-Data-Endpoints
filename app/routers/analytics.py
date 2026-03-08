@@ -214,26 +214,25 @@ async def get_day_details(
     raw_list = (await db.execute(stmt_list)).all()
 
     violations_list = []
-    stats = {"critical": 0, "high": 0, "total": 0}
+    stats = {"critical": 0, "high": 0, "medium":0, "low":0, "total": 0}
 
     for v, cam_name, room_name in raw_list:
         stats["total"] += 1
         if v.severity == "Critical": stats["critical"] += 1
         if v.severity == "High": stats["high"] += 1
+        if v.severity == "Medium": stats["medium"] += 1
+        if v.severity == "Low": stats["low"] += 1
 
-        # --- FIX: Convert UTC Timestamp to Local Time for Display ---
-        # 1. Get UTC time from DB
-        utc_time = v.timestamp_utc
-        # 2. Add the offset provided by Frontend (e.g., +300 mins)
-        local_time = utc_time + timedelta(minutes=timezone_offset)
-        # 3. Format string
-        formatted_time = local_time.strftime("%I:%M %p")
+        # FIXING: Convert UTC Timestamp to Local Time for Display (Important)
+        utc_time = v.timestamp_utc # 1. Get UTC time from DB
+        local_time = utc_time + timedelta(minutes=timezone_offset) # 2. Add the offset provided by Frontend (e.g., +300 mins)
+        formatted_time = local_time.strftime("%Y-%m-%d %I:%M %p")
 
         violations_list.append({
             "id": str(v.id),
             "type": v.violation_type,
             "severity": v.severity.lower(),
-            "timestamp": formatted_time,  # <--- Sending Correct Local Time
+            "timestamp": formatted_time,
             "cameraName": cam_name or "Unknown Camera",
             "roomName": room_name or "Unknown Location",
             "imageUrl": v.snapshot_url or "https://via.placeholder.com/150",
