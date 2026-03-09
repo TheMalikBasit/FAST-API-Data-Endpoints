@@ -19,6 +19,11 @@ class ViolationReportSchema(BaseModel):
     duration_seconds: float = 0.0
 
 
+class FalsePositiveUpdate(BaseModel):
+    """Payload to toggle is_false_positive on a violation."""
+    is_false_positive: bool
+
+
 class ViolationResponse(BaseModel):
     """Response sent back to UI/Dashboard."""
     id: UUID

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List, Dict, Any
+from uuid import UUID as PyUUID
 from datetime import datetime, timedelta
 import shutil
 import os
@@ -14,7 +15,7 @@ from app.models.violation import Violation
 from app.models.camera import Camera
 from app.models.device import Device
 from app.core.dependencies import get_current_active_user, get_device_by_token
-from app.schemas.events import ViolationResponse
+from app.schemas.events import ViolationResponse, FalsePositiveUpdate
 
 router = APIRouter(prefix="/events", tags=["Events"])
 
@@ -153,7 +154,36 @@ async def get_violation_logs(
     return violations_with_context
 
 
-# --- 3. EXISTING: Health Check ---
+# --- 3. NEW: Toggle False Positive ---
+@router.patch("/violations/{violation_id}/false-positive")
+async def toggle_false_positive(
+        violation_id: PyUUID,
+        payload: FalsePositiveUpdate,
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_db),
+):
+    """Mark a violation as a false positive or revert it."""
+    stmt = select(Violation).where(
+        Violation.id == violation_id,
+        Violation.organization_id == current_user.organization_id,
+    )
+    result = await db.execute(stmt)
+    violation = result.scalars().first()
+
+    if not violation:
+        raise HTTPException(status_code=404, detail="Violation not found")
+
+    violation.is_false_positive = payload.is_false_positive
+    await db.commit()
+    await db.refresh(violation)
+
+    return {
+        "violation_id": str(violation.id),
+        "is_false_positive": violation.is_false_positive,
+    }
+
+
+# --- 4. EXISTING: Health Check ---
 @router.get("/status/ml", tags=["Health"])
 async def get_ml_status():
     """Mock Health Check."""
