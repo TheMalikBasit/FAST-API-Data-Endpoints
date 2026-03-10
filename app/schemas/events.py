@@ -24,6 +24,11 @@ class FalsePositiveUpdate(BaseModel):
     is_false_positive: bool
 
 
+class ResolvedUpdate(BaseModel):
+    """Payload to toggle is_resolved on a violation."""
+    is_resolved: bool
+
+
 class ViolationResponse(BaseModel):
     """Response sent back to UI/Dashboard."""
     id: UUID

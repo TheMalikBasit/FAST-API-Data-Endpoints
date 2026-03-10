@@ -15,7 +15,7 @@ from app.models.violation import Violation
 from app.models.camera import Camera
 from app.models.device import Device
 from app.core.dependencies import get_current_active_user, get_device_by_token
-from app.schemas.events import ViolationResponse, FalsePositiveUpdate
+from app.schemas.events import ViolationResponse, FalsePositiveUpdate, ResolvedUpdate
 
 router = APIRouter(prefix="/events", tags=["Events"])
 
@@ -183,7 +183,36 @@ async def toggle_false_positive(
     }
 
 
-# --- 4. EXISTING: Health Check ---
+# --- 4. NEW: Toggle Resolved ---
+@router.patch("/violations/{violation_id}/resolved")
+async def toggle_resolved(
+        violation_id: PyUUID,
+        payload: ResolvedUpdate,
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_db),
+):
+    """Mark a violation as resolved or revert it."""
+    stmt = select(Violation).where(
+        Violation.id == violation_id,
+        Violation.organization_id == current_user.organization_id,
+    )
+    result = await db.execute(stmt)
+    violation = result.scalars().first()
+
+    if not violation:
+        raise HTTPException(status_code=404, detail="Violation not found")
+
+    violation.is_resolved = payload.is_resolved
+    await db.commit()
+    await db.refresh(violation)
+
+    return {
+        "violation_id": str(violation.id),
+        "is_resolved": violation.is_resolved,
+    }
+
+
+# --- 5. EXISTING: Health Check ---
 @router.get("/status/ml", tags=["Health"])
 async def get_ml_status():
     """Mock Health Check."""
