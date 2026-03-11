@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List, Dict, Any
@@ -16,6 +16,7 @@ from app.models.camera import Camera
 from app.models.device import Device
 from app.core.dependencies import get_current_active_user, get_device_by_token
 from app.schemas.events import ViolationResponse, FalsePositiveUpdate, ResolvedUpdate
+from app.core.activity_logger import log_activity
 
 router = APIRouter(prefix="/events", tags=["Events"])
 
@@ -161,6 +162,7 @@ async def toggle_false_positive(
         payload: FalsePositiveUpdate,
         current_user: User = Depends(get_current_active_user),
         db: AsyncSession = Depends(get_db),
+        background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     """Mark a violation as a false positive or revert it."""
     stmt = select(Violation).where(
@@ -177,6 +179,20 @@ async def toggle_false_positive(
     await db.commit()
     await db.refresh(violation)
 
+    # Always log (Option A)
+    background_tasks.add_task(
+        log_activity,
+        organization_id=current_user.organization_id,
+        user_id=current_user.id,
+        action="VIOLATION_FALSE_POSITIVE_TOGGLED",
+        details={
+            "actor_email": current_user.email,
+            "actor_name": current_user.username,
+            "violation_id": str(violation.id),
+            "new_value": violation.is_false_positive,
+        },
+    )
+
     return {
         "violation_id": str(violation.id),
         "is_false_positive": violation.is_false_positive,
@@ -190,6 +206,7 @@ async def toggle_resolved(
         payload: ResolvedUpdate,
         current_user: User = Depends(get_current_active_user),
         db: AsyncSession = Depends(get_db),
+        background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     """Mark a violation as resolved or revert it."""
     stmt = select(Violation).where(
@@ -205,6 +222,20 @@ async def toggle_resolved(
     violation.is_resolved = payload.is_resolved
     await db.commit()
     await db.refresh(violation)
+
+    # Always log (Option A)
+    background_tasks.add_task(
+        log_activity,
+        organization_id=current_user.organization_id,
+        user_id=current_user.id,
+        action="VIOLATION_RESOLVED_TOGGLED",
+        details={
+            "actor_email": current_user.email,
+            "actor_name": current_user.username,
+            "violation_id": str(violation.id),
+            "new_value": violation.is_resolved,
+        },
+    )
 
     return {
         "violation_id": str(violation.id),

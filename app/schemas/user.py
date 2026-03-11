@@ -51,3 +51,10 @@ class UserProfileResponse(BaseModel):
 class UserPasswordUpdate(BaseModel):
     current_password: str = Field(..., description="Required to verify identity")
     new_password: str = Field(..., min_length=8, description="New secure password")
+
+class AdminUserUpdateSchema(BaseModel):
+    """Payload for admin to update any user's details."""
+    username: Optional[str] = None
+    email: Optional[EmailStr] = None
+    phone_number: Optional[str] = None
+    role: Optional[str] = None

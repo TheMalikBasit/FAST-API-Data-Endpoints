@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, case, desc, and_, extract
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime, date, timedelta
 import calendar
 from app.db.database import get_db
@@ -11,6 +11,7 @@ from app.models.violation import Violation
 from app.models.camera import Camera
 from app.models.device import Organization
 from app.core.dependencies import get_current_active_user
+from app.core.activity_logger import log_activity
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
@@ -237,7 +238,8 @@ async def get_day_details(
             "roomName": room_name or "Unknown Location",
             "imageUrl": v.snapshot_url or "https://via.placeholder.com/150",
             "description": f"{v.violation_type} detected in {room_name or 'Unknown Location'}",
-            "is_false_positive": v.is_false_positive
+            "is_false_positive": v.is_false_positive,
+            "is_resolved": v.is_resolved,
         })
 
     # C. Daily Room Stats
@@ -255,3 +257,41 @@ async def get_day_details(
         "violations": violations_list,
         "room_data": day_room_data
     }
+
+
+# --- 3. Log Report Download (Called by frontend after download completes) ---
+@router.post("/log-download", status_code=200)
+async def log_report_download(
+    report_type: str = Query(..., description="Type of report: dashboard or day_detail"),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None, ge=2020),
+    date_str: Optional[str] = Query(None, description="YYYY-MM-DD for day_detail reports"),
+    current_user: User = Depends(get_current_active_user),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+):
+    """
+    Lightweight endpoint the frontend calls after a report download completes.
+    Logs the activity and returns 200 immediately.
+    """
+    filters = {}
+    if month is not None:
+        filters["month"] = month
+    if year is not None:
+        filters["year"] = year
+    if date_str is not None:
+        filters["date"] = date_str
+
+    background_tasks.add_task(
+        log_activity,
+        organization_id=current_user.organization_id,
+        user_id=current_user.id,
+        action="REPORT_DOWNLOADED",
+        details={
+            "actor_email": current_user.email,
+            "actor_name": current_user.username,
+            "report_type": report_type,
+            "filters": filters,
+        },
+    )
+
+    return {"message": "Download logged."}

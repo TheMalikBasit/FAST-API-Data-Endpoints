@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -8,6 +8,7 @@ from uuid import UUID
 from typing import Union, List, Optional
 from app.db.database import get_db
 from app.models.user import User
+from app.core.activity_logger import log_activity
 from app.models.device import Device, Organization
 from app.schemas.auth import (
     Token,
@@ -22,7 +23,8 @@ from app.schemas.user import (
     UserCreate,
     UserUpdateSchema,
     UserProfileResponse,
-    UserPasswordUpdate
+    UserPasswordUpdate,
+    AdminUserUpdateSchema
 )
 from app.core.security import (
     verify_password,
@@ -43,7 +45,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 @router.post("/token", response_model=TokenOr2FA)
 async def login_for_access_token(
         form_data: OAuth2PasswordRequestForm = Depends(),
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_db),
+        background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     """
     Smart Login:
@@ -94,6 +97,15 @@ async def login_for_access_token(
         expires_delta=access_token_expires
     )
 
+    # Log successful login
+    background_tasks.add_task(
+        log_activity,
+        organization_id=user.organization_id,
+        user_id=user.id,
+        action="USER_LOGIN",
+        details={"actor_email": user.email, "actor_name": user.username, "method": "standard"},
+    )
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -105,7 +117,8 @@ async def login_for_access_token(
 @router.post("/2fa/verify", response_model=Token)
 async def verify_2fa_code(
         data: Verify2FARequest,
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_db),
+        background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     """
     Finalizes login by verifying the OTP sent to email.
@@ -137,6 +150,15 @@ async def verify_2fa_code(
         subject=user.id,
         token_type="user",
         expires_delta=access_token_expires
+    )
+
+    # Log successful 2FA login
+    background_tasks.add_task(
+        log_activity,
+        organization_id=user.organization_id,
+        user_id=user.id,
+        action="USER_LOGIN",
+        details={"actor_email": user.email, "actor_name": user.username, "method": "2fa"},
     )
 
     return {"access_token": access_token, "token_type": "bearer"}
@@ -235,34 +257,46 @@ async def read_users_me(
         "is_2fa_enabled": current_user.is_2fa_enabled
     }
 
-# --- 4. Method to UPDATE USER PROFILE
+# --- 4. Method to UPDATE USER PROFILE (ADMIN ONLY)
 @router.put("/users/me", response_model=UserProfileResponse)
 async def update_user_me(
         user_update: UserUpdateSchema,
         current_user: User = Depends(get_current_active_user),
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_db),
+        background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     """
     Updates the authenticated user's profile info (Name, Email, Phone).
+    Restricted to GlobalAdmin only.
     """
+    if current_user.role != "GlobalAdmin":
+        raise HTTPException(status_code=403, detail="Only Global Admins can update profile details.")
+
+    # Track changes for logging
+    changes = {}
 
     # 1. Update fields if provided
-    if user_update.full_name is not None:
+    if user_update.full_name is not None and user_update.full_name != current_user.username:
+        changes["username"] = {"old": current_user.username, "new": user_update.full_name}
         current_user.username = user_update.full_name
 
-    if user_update.phone_number is not None:
-        # Ensure your User model has this column!
+    if user_update.phone_number is not None and user_update.phone_number != current_user.phone_number:
+        changes["phone_number"] = {"old": current_user.phone_number, "new": user_update.phone_number}
         current_user.phone_number = user_update.phone_number
 
     if user_update.email is not None and user_update.email != current_user.email:
-        # Check if new email is already taken
-        stmt = select(User).where(User.email == user_update.email)
+        # Check if new email is already taken in this org
+        stmt = select(User).where(
+            User.email == user_update.email,
+            User.organization_id == current_user.organization_id,
+        )
         existing = (await db.execute(stmt)).scalars().first()
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="This email address is already in use."
             )
+        changes["email"] = {"old": current_user.email, "new": user_update.email}
         current_user.email = user_update.email
 
     # 2. Commit Changes
@@ -270,7 +304,21 @@ async def update_user_me(
     await db.commit()
     await db.refresh(current_user)
 
-    # 3. Re-fetch Organization Name for response consistency
+    # 3. Log if something changed
+    if changes:
+        background_tasks.add_task(
+            log_activity,
+            organization_id=current_user.organization_id,
+            user_id=current_user.id,
+            action="USER_PROFILE_UPDATED",
+            details={
+                "actor_email": current_user.email,
+                "actor_name": current_user.username,
+                "changes": changes,
+            },
+        )
+
+    # 4. Re-fetch Organization Name for response consistency
     stmt = select(Organization).where(Organization.id == current_user.organization_id)
     result = await db.execute(stmt)
     org = result.scalars().first()
@@ -292,7 +340,8 @@ async def update_user_me(
 async def create_new_user(
         new_user_data: UserCreate,
         current_user: User = Depends(get_current_active_user),
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_db),
+        background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     if current_user.role != "GlobalAdmin":
         raise HTTPException(status_code=403, detail="Only Global Admins can create users.")
@@ -323,6 +372,21 @@ async def create_new_user(
     await db.commit()
     await db.refresh(new_user)
 
+    # Log user creation
+    background_tasks.add_task(
+        log_activity,
+        organization_id=current_user.organization_id,
+        user_id=current_user.id,
+        action="USER_ADDED",
+        details={
+            "actor_email": current_user.email,
+            "actor_name": current_user.username,
+            "target_user_email": new_user.email,
+            "target_user_name": new_user.username,
+            "target_user_role": new_user.role,
+        },
+    )
+
     return new_user
 
 # --- 6. Method for LISTING USERS
@@ -344,7 +408,8 @@ async def list_organization_users(
 async def update_user_password(
         password_data: UserPasswordUpdate,
         current_user: User = Depends(get_current_active_user),
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_db),
+        background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
     """
     Updates the user's password after verifying the current one.
@@ -364,4 +429,149 @@ async def update_user_password(
     db.add(current_user)
     await db.commit()
 
+    # 4. Log password change
+    background_tasks.add_task(
+        log_activity,
+        organization_id=current_user.organization_id,
+        user_id=current_user.id,
+        action="USER_PASSWORD_CHANGED",
+        details={
+            "actor_email": current_user.email,
+            "actor_name": current_user.username,
+        },
+    )
+
     return {"message": "Password updated successfully."}
+
+
+# --- 8. Method to DELETE USER (ADMIN ONLY, HARD DELETE) ---
+@router.delete("/users/{user_id}", status_code=status.HTTP_200_OK)
+async def delete_user(
+        user_id: UUID,
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_db),
+        background_tasks: BackgroundTasks = BackgroundTasks(),
+):
+    """
+    Hard-deletes a user from the organization. GlobalAdmin only.
+    Admins can delete other admins. Cannot delete yourself.
+    """
+    if current_user.role != "GlobalAdmin":
+        raise HTTPException(status_code=403, detail="Only Global Admins can remove users.")
+
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot delete yourself.")
+
+    # Fetch target user — must be in same org
+    stmt = select(User).where(
+        User.id == user_id,
+        User.organization_id == current_user.organization_id,
+    )
+    target_user = (await db.execute(stmt)).scalars().first()
+
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found in your organization.")
+
+    # Capture info before deletion for the log
+    target_email = target_user.email
+    target_name = target_user.username
+    target_role = target_user.role
+
+    await db.delete(target_user)
+    await db.commit()
+
+    # Log user removal
+    background_tasks.add_task(
+        log_activity,
+        organization_id=current_user.organization_id,
+        user_id=current_user.id,
+        action="USER_REMOVED",
+        details={
+            "actor_email": current_user.email,
+            "actor_name": current_user.username,
+            "target_user_email": target_email,
+            "target_user_name": target_name,
+            "target_user_role": target_role,
+        },
+    )
+
+    return {"message": f"User {target_email} has been permanently removed."}
+
+
+# --- 9. Method to UPDATE USER DETAILS (ADMIN ONLY) ---
+@router.put("/users/{user_id}", response_model=UserResponse)
+async def admin_update_user(
+        user_id: UUID,
+        update_data: AdminUserUpdateSchema,
+        current_user: User = Depends(get_current_active_user),
+        db: AsyncSession = Depends(get_db),
+        background_tasks: BackgroundTasks = BackgroundTasks(),
+):
+    """
+    Admin updates another user's details (name, email, phone, role).
+    GlobalAdmin only. Target must be in same org.
+    """
+    if current_user.role != "GlobalAdmin":
+        raise HTTPException(status_code=403, detail="Only Global Admins can update user details.")
+
+    # Fetch target user in same org
+    stmt = select(User).where(
+        User.id == user_id,
+        User.organization_id == current_user.organization_id,
+    )
+    target_user = (await db.execute(stmt)).scalars().first()
+
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found in your organization.")
+
+    # Track changes
+    changes = {}
+
+    if update_data.username is not None and update_data.username != target_user.username:
+        changes["username"] = {"old": target_user.username, "new": update_data.username}
+        target_user.username = update_data.username
+
+    if update_data.phone_number is not None and update_data.phone_number != target_user.phone_number:
+        changes["phone_number"] = {"old": target_user.phone_number, "new": update_data.phone_number}
+        target_user.phone_number = update_data.phone_number
+
+    if update_data.role is not None and update_data.role != target_user.role:
+        changes["role"] = {"old": target_user.role, "new": update_data.role}
+        target_user.role = update_data.role
+
+    if update_data.email is not None and update_data.email.lower() != target_user.email:
+        # Check email uniqueness within org
+        email_stmt = select(User).where(
+            User.email == update_data.email.lower(),
+            User.organization_id == current_user.organization_id,
+        )
+        if (await db.execute(email_stmt)).scalars().first():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This email address is already in use in this organization."
+            )
+        changes["email"] = {"old": target_user.email, "new": update_data.email.lower()}
+        target_user.email = update_data.email.lower()
+
+    db.add(target_user)
+    await db.commit()
+    await db.refresh(target_user)
+
+    # Log only if something actually changed
+    if changes:
+        background_tasks.add_task(
+            log_activity,
+            organization_id=current_user.organization_id,
+            user_id=current_user.id,
+            action="USER_DETAILS_UPDATED",
+            details={
+                "actor_email": current_user.email,
+                "actor_name": current_user.username,
+                "target_user_id": str(target_user.id),
+                "target_user_email": target_user.email,
+                "target_user_name": target_user.username,
+                "changes": changes,
+            },
+        )
+
+    return target_user

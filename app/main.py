@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from app.db.database import engine
 from app.models.base import Base
 from app.core.config import settings
-from app.routers import devices, events, auth, config, analytics, media, cameras, capabilities
+from app.routers import devices, events, auth, config, analytics, media, cameras, capabilities, logs
 
 
 # --- Database Initialization ---
@@ -69,6 +69,7 @@ app.include_router(cameras.router, prefix="/api/v1")
 app.include_router(capabilities.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
 app.include_router(config.router, prefix="/api/v1")
+app.include_router(logs.router, prefix="/api/v1")
 
 @app.get("/")
 async def root():
