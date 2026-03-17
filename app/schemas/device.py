@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 
@@ -9,8 +9,8 @@ class RuleConfig(BaseModel):
     severity: str = "Medium" # Options: Low, Medium, High, Critical
 
 class RTSPStreamSchema(BaseModel):
-    """Data model for a single RTSP stream discovered locally on the Edge PC."""
-    rtsp_url: HttpUrl = Field(..., description="The full RTSP URL of the camera stream.")
+    """Data model for a single camera source discovered locally on the Edge PC."""
+    rtsp_url: str = Field(..., min_length=1, description="RTSP URL, HTTP URL, local file path (C:\\...), or webcam index (0-9)")
     local_name: Optional[str] = Field(None, max_length=100)
     model_config = {"extra": "forbid"}
 

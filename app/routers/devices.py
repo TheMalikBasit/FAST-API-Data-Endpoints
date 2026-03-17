@@ -3,7 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
 from uuid import UUID
+from typing import Optional
 import uuid
+from pydantic import BaseModel, Field
 from app.db.database import get_db
 from app.models.device import Device, Organization
 from app.models.camera import Camera, CameraRule
@@ -118,4 +120,38 @@ async def provision_new_device(data: DeviceProvisionSchema, db: AsyncSession = D
         "device_id": new_device.id,
         "device_token_secret": secure_token,
         "message": "Provisioned successfully."
+    }
+
+@router.post("/link")
+async def link_device(device_token: str, db: AsyncSession = Depends(get_db)):
+    """
+    Validate device token and return device info + subscription status.
+    Called by Edge service on startup to confirm device is registered and active.
+    """
+    stmt = select(Device).where(Device.device_token_secret == device_token)
+    result = await db.execute(stmt)
+    device = result.scalars().first()
+
+    if not device:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid device token."
+        )
+
+    # Get organization info
+    org_stmt = select(Organization).where(Organization.id == device.organization_id)
+    org_result = await db.execute(org_stmt)
+    organization = org_result.scalars().first()
+
+    # Update last heartbeat
+    device.last_heartbeat = func.now()
+    await db.commit()
+
+    return {
+        "success": True,
+        "device_id": device.id,
+        "organization_id": device.organization_id,
+        "organization_name": organization.name if organization else None,
+        "subscription_active": device.subscription_active,
+        "message": "Device linked successfully."
     }

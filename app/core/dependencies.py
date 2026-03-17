@@ -89,3 +89,33 @@ async def get_device_by_token(
         raise HTTPException(status_code=404, detail="Device not found")
 
     return device
+
+
+# --- Device Token Authentication (for Analytics/Direct Token Access) ---
+async def get_current_device_from_token(
+        token: str = Depends(oauth2_scheme),
+        db: AsyncSession = Depends(get_db)
+) -> Device:
+    """
+    Authenticates a Device using its device_token_secret (simple string token).
+    Used for device-based analytics endpoints.
+    Token should be passed as: Authorization: Bearer <device_token_secret>
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing device token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    if not token:
+        raise credentials_exception
+
+    # Look up device by device_token_secret
+    stmt = select(Device).where(Device.device_token_secret == token)
+    result = await db.execute(stmt)
+    device = result.scalars().first()
+
+    if not device:
+        raise credentials_exception
+
+    return device

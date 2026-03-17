@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from app.db.database import engine
 from app.models.base import Base
 from app.core.config import settings
-from app.routers import devices, events, auth, config, analytics, media, cameras, capabilities, logs
+from app.routers import devices, events, auth, config, analytics, media, cameras, capabilities, logs, device_analytics
 
 
 # --- Database Initialization ---
@@ -63,6 +63,7 @@ app.add_middleware(
 # All routers are grouped under /api/v1 for consistency
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(analytics.router, prefix="/api/v1")
+app.include_router(device_analytics.router, prefix="/api/v1")
 app.include_router(media.router, prefix="/api/v1")
 app.include_router(devices.router, prefix="/api/v1")
 app.include_router(cameras.router, prefix="/api/v1")
