@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
 from uuid import UUID
-from typing import Optional
+from typing import Optional, List
 import uuid
 from pydantic import BaseModel, Field
 from app.db.database import get_db
@@ -15,6 +15,9 @@ from app.schemas.device import (
     DeviceProvisionSchema,
     ProvisionResponseSchema
 )
+from app.models.capabilities import OrganizationCapability
+from app.schemas.capabilities import CapabilityResponse, CapabilityUpdate
+from app.core.dependencies import get_current_device_from_token
 
 router = APIRouter(prefix="/devices", tags=["Devices (Hardware)"])
 
@@ -155,3 +158,55 @@ async def link_device(device_token: str, db: AsyncSession = Depends(get_db)):
         "subscription_active": device.subscription_active,
         "message": "Device linked successfully."
     }
+
+# ===== DEVICE CAPABILITIES (Hardware) =====
+
+@router.get("/capabilities", response_model=List[CapabilityResponse])
+async def get_device_capabilities(
+    current_device: Device = Depends(get_current_device_from_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Fetch all organization capabilities using device token authentication.
+    The device's organization_id is used to filter capabilities.
+    """
+    stmt = select(OrganizationCapability).where(
+        OrganizationCapability.organization_id == current_device.organization_id
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+@router.patch("/capabilities/{object_code}", response_model=CapabilityResponse)
+async def update_device_capability(
+    object_code: str,
+    capability_data: CapabilityUpdate,
+    current_device: Device = Depends(get_current_device_from_token),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Update a capability's display_name and/or is_ppe fields using device token authentication.
+    Only fields provided in the request body will be updated (partial update).
+    """
+    # Find the capability by organization_id and object_code
+    stmt = select(OrganizationCapability).where(
+        OrganizationCapability.organization_id == current_device.organization_id,
+        OrganizationCapability.object_code == object_code
+    )
+    result = await db.execute(stmt)
+    capability = result.scalars().first()
+
+    if not capability:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Capability with object_code '{object_code}' not found in this organization."
+        )
+
+    # Update only the provided fields
+    if capability_data.display_name is not None:
+        capability.display_name = capability_data.display_name
+    if capability_data.is_ppe is not None:
+        capability.is_ppe = capability_data.is_ppe
+
+    await db.commit()
+    await db.refresh(capability)
+    return capability

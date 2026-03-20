@@ -8,7 +8,7 @@ from app.models.capabilities import OrganizationCapability
 from app.models.device import Device
 from app.models.user import User
 from app.core.dependencies import get_current_active_user
-from app.schemas.capabilities import CapabilitySyncRequest, CapabilityResponse
+from app.schemas.capabilities import CapabilitySyncRequest, CapabilityResponse, CapabilityUpdate
 
 router = APIRouter(prefix="/capabilities", tags=["AI Capabilities"])
 
@@ -56,3 +56,40 @@ async def list_capabilities(
     )
     result = await db.execute(stmt)
     return result.scalars().all()
+
+# ===== AI CAPABILITY MANAGEMENT (AI Capabilities) =====
+
+@router.patch("/{object_code}", response_model=CapabilityResponse)
+async def update_capability(
+    object_code: str,
+    capability_data: CapabilityUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Update a capability's display_name and/or is_ppe fields using user JWT authentication.
+    Only fields provided in the request body will be updated (partial update).
+    """
+    # Find the capability by organization_id and object_code
+    stmt = select(OrganizationCapability).where(
+        OrganizationCapability.organization_id == current_user.organization_id,
+        OrganizationCapability.object_code == object_code
+    )
+    result = await db.execute(stmt)
+    capability = result.scalars().first()
+
+    if not capability:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Capability with object_code '{object_code}' not found in this organization."
+        )
+
+    # Update only the provided fields
+    if capability_data.display_name is not None:
+        capability.display_name = capability_data.display_name
+    if capability_data.is_ppe is not None:
+        capability.is_ppe = capability_data.is_ppe
+
+    await db.commit()
+    await db.refresh(capability)
+    return capability

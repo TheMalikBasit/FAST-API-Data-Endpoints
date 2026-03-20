@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 
 class CapabilityCreate(BaseModel):
     """
@@ -23,3 +23,11 @@ class CapabilityResponse(BaseModel):
     display_name: str
     is_ppe: bool
     model_config = {"from_attributes": True} # This allows Pydantic to read data directly from the SQLAlchemy model
+
+class CapabilityUpdate(BaseModel):
+    """
+    Schema for updating a capability's display_name and is_ppe fields.
+    Both fields are optional to allow partial updates.
+    """
+    display_name: Optional[str] = Field(None, max_length=100, description="Updated human-readable name")
+    is_ppe: Optional[bool] = Field(None, description="Whether this object is a safety rule item")
