@@ -7,13 +7,20 @@ class CameraRulesSchema(BaseModel):
     severity: str = "Medium"
 
 
+class CameraCreate(BaseModel):
+    name: str = Field(..., max_length=255)
+    location: Optional[str] = Field(None, max_length=255)
+    rtsp_url: str = Field(..., min_length=1)
+    device_id: UUID
+
+
 class CameraResponse(BaseModel):
     id: UUID
     name: str
     location: Optional[str] = None
     rtsp_url: str
     status: str
-    active_rules: Dict[str, Any] = {} # This will return the JSON rules (e.g., {"helmet": {"required": true...}})
+    active_rules: Dict[str, Any] = {}
 
     model_config = {"from_attributes": True}
 

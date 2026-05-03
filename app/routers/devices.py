@@ -13,13 +13,27 @@ from app.core.security import create_device_token
 from app.schemas.device import (
     DeviceHandshakeSchema,
     DeviceProvisionSchema,
+    DeviceResponse,
     ProvisionResponseSchema
 )
 from app.models.capabilities import OrganizationCapability
 from app.schemas.capabilities import CapabilityResponse, CapabilityUpdate
-from app.core.dependencies import get_current_device_from_token
+from app.core.dependencies import get_current_device_from_token, get_current_active_user
+from app.models.user import User
 
 router = APIRouter(prefix="/devices", tags=["Devices (Hardware)"])
+
+
+@router.get("/", response_model=List[DeviceResponse])
+async def list_devices(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Returns all edge devices for the authenticated user's organization."""
+    stmt = select(Device).where(Device.organization_id == current_user.organization_id)
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
 
 async def get_device_by_token(device_token: str, db: AsyncSession) -> Device:
     """Authenticates the device using its secret token."""
@@ -36,47 +50,16 @@ async def get_device_by_token(device_token: str, db: AsyncSession) -> Device:
 
 @router.post("/handshake")
 async def handshake(data: DeviceHandshakeSchema, db: AsyncSession = Depends(get_db)):
-    """Handles initial device authentication, heartbeat, and local camera registration."""
+    """Authenticates the device and updates its heartbeat. Camera management is now web-only."""
     device = await get_device_by_token(data.device_token_secret, db)
-
     device.last_heartbeat = func.now()
     device.name = data.hostname
-
-    for camera_data in data.cameras:
-        camera_stmt = select(Camera).where(
-            Camera.device_id == device.id,
-            Camera.rtsp_url == str(camera_data.rtsp_url)
-        )
-        existing_camera = (await db.execute(camera_stmt)).scalars().first()
-
-        if existing_camera:
-            existing_camera.status = "Online"
-        else:
-            new_camera = Camera(
-                organization_id=device.organization_id,
-                device_id=device.id,
-                name=camera_data.local_name or str(camera_data.rtsp_url),
-                rtsp_url=str(camera_data.rtsp_url),
-                local_timezone="UTC",
-                status="Online",
-                location=camera_data.local_name
-            )
-            db.add(new_camera)
-            await db.flush()
-
-            default_rules = CameraRule(
-                camera_id=new_camera.id,
-                active_rules={},
-                is_active=True
-            )
-            db.add(default_rules)
-
     await db.commit()
-    return {"status": "success", "device_id": device.id, "message": "Cameras synchronized."}
+    return {"status": "success", "device_id": device.id, "message": "Device heartbeat updated."}
 
 @router.get("/config/{device_id}")
 async def get_device_config(device_id: UUID, db: AsyncSession = Depends(get_db)):
-    """Retrieves config (RTSP URL, rules) for Edge Docker."""
+    """Retrieves full camera config (rules + display fields) for the Edge desktop."""
     device_stmt = select(Device).where(Device.id == device_id)
     device = (await db.execute(device_stmt)).scalars().first()
 
@@ -90,14 +73,56 @@ async def get_device_config(device_id: UUID, db: AsyncSession = Depends(get_db))
     for camera, rules in results.all():
         config_list.append({
             "camera_id": camera.id,
+            "name": camera.name,
+            "location": camera.location,
             "rtsp_url": camera.rtsp_url,
+            "status": camera.status or "Offline",
             "required_ppe": rules.active_rules,
+            "active_rules": rules.active_rules,
             "detection_zones": rules.detection_zones or [],
             "cooldown_sec": rules.violation_cooldown_sec,
-            "is_active": rules.is_active
+            "is_active": rules.is_active,
         })
 
     return {"device_id": device_id, "cameras": config_list}
+
+class CameraActiveUpdate(BaseModel):
+    is_active: bool
+
+
+@router.patch("/cameras/{camera_id}/active")
+async def set_camera_active(
+    camera_id: UUID,
+    body: CameraActiveUpdate,
+    current_device: Device = Depends(get_current_device_from_token),
+    db: AsyncSession = Depends(get_db),
+):
+    """Toggle detection activation for a camera (device token auth)."""
+    cam_stmt = select(Camera).where(
+        Camera.id == camera_id,
+        Camera.device_id == current_device.id,
+    )
+    camera = (await db.execute(cam_stmt)).scalars().first()
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found for this device.")
+
+    rule_stmt = select(CameraRule).where(CameraRule.camera_id == camera_id)
+    rule = (await db.execute(rule_stmt)).scalars().first()
+    if not rule:
+        rule = CameraRule(camera_id=camera_id, active_rules={}, is_active=body.is_active)
+        db.add(rule)
+    else:
+        rule.is_active = body.is_active
+
+    await db.commit()
+    await db.refresh(rule)
+
+    return {
+        "camera_id": camera.id,
+        "is_active": rule.is_active,
+        "message": "Camera activation updated.",
+    }
+
 
 @router.post("/provision", response_model=ProvisionResponseSchema, status_code=201)
 async def provision_new_device(data: DeviceProvisionSchema, db: AsyncSession = Depends(get_db)):

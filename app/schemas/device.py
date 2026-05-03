@@ -17,9 +17,9 @@ class RTSPStreamSchema(BaseModel):
 class DeviceHandshakeSchema(BaseModel):
     """The full payload sent from the Edge Docker on initial connection."""
     device_token_secret: str = Field(..., min_length=32)
-    cameras: List[RTSPStreamSchema] # The list of cameras discovered on the local network.
-    hostname: str = Field(..., max_length=100) # Information about the Edge PC itself (e.g., hostname, version)
-    model_config = {"extra": "forbid"} # We enforce that no extra fields are sent by the Edge PC, which is safer.
+    cameras: Optional[List[RTSPStreamSchema]] = []  # Kept for backward compat — ignored by server
+    hostname: str = Field(..., max_length=100)
+    model_config = {"extra": "forbid"}
 
 class DeviceProvisionSchema(BaseModel):
     """Input model for provisioning a new device and organization (Admin use)."""
