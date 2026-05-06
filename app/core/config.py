@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     MAIL_USERNAME: str = ""
     MAIL_PASSWORD: str = ""
     MAIL_FROM: str = ""
+    MAIL_FROM_NAME: str = "WSMS Alerts"
+    MAIL_SERVER: str = "smtp.gmail.com"
+    MAIL_PORT: int = 587
+    # Public base URL for unsubscribe / deep links in emails
+    APP_PUBLIC_URL: str = "http://localhost:3000"
+    API_PUBLIC_URL: str = "http://localhost:8000"
 
     # The final DATABASE_URL constructed from the fields above.
     @property

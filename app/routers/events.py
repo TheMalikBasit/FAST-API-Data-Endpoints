@@ -17,6 +17,7 @@ from app.models.device import Device
 from app.core.dependencies import get_current_active_user, get_device_by_token
 from app.schemas.events import ViolationResponse, FalsePositiveUpdate, ResolvedUpdate
 from app.core.activity_logger import log_activity
+from app.notifications.triggers.realtime import dispatch as dispatch_realtime_notification
 
 router = APIRouter(prefix="/events", tags=["Events"])
 
@@ -27,6 +28,7 @@ MEDIA_ROOT = Path("media")
 # --- 1. NEW: Handle Violation Upload (Image + Data) ---
 @router.post("/violation", status_code=status.HTTP_201_CREATED)
 async def log_violation(
+        background_tasks: BackgroundTasks,
         # -- Metadata (Form Fields) --
         device_token: str = Form(..., description="Secret token of the Edge Device"),
         camera_id: str = Form(..., description="UUID of the Camera"),
@@ -103,6 +105,10 @@ async def log_violation(
 
     await db.commit()
     await db.refresh(new_violation)
+
+    # Fan out real-time email notifications (per org policy + user prefs).
+    # Spawned as a background task so SMTP latency never blocks the edge device.
+    background_tasks.add_task(dispatch_realtime_notification, new_violation.id)
 
     return {
         "status": "recorded",

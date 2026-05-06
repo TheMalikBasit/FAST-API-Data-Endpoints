@@ -114,12 +114,15 @@ async def set_camera_active(
     else:
         rule.is_active = body.is_active
 
+    camera.status = "Online" if body.is_active else "Offline"
+
     await db.commit()
     await db.refresh(rule)
 
     return {
         "camera_id": camera.id,
         "is_active": rule.is_active,
+        "status": camera.status,
         "message": "Camera activation updated.",
     }
 

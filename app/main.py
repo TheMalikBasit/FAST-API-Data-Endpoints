@@ -6,7 +6,8 @@ from contextlib import asynccontextmanager
 from app.db.database import engine
 from app.models.base import Base
 from app.core.config import settings
-from app.routers import devices, events, auth, config, analytics, media, cameras, capabilities, logs, device_analytics
+from app.routers import devices, events, auth, config, analytics, media, cameras, capabilities, logs, device_analytics, notifications
+from app.notifications import scheduler as notif_scheduler
 
 
 # --- Database Initialization ---
@@ -30,10 +31,15 @@ async def lifespan(app: FastAPI):
     # Create tables (Dev only - Use Alembic in Prod)
     await create_db_tables()
 
+    # Start notification scheduler (digests + analytics)
+    notif_scheduler.start()
+    print("Notification scheduler started.")
+
     yield
 
     # 2. Shutdown Logic
     print("Application Shutdown: Closing connections.")
+    notif_scheduler.stop()
 
 
 # --- App Definition ---
@@ -71,6 +77,8 @@ app.include_router(capabilities.router, prefix="/api/v1")
 app.include_router(events.router, prefix="/api/v1")
 app.include_router(config.router, prefix="/api/v1")
 app.include_router(logs.router, prefix="/api/v1")
+app.include_router(notifications.router, prefix="/api/v1")
+app.include_router(notifications.user_router, prefix="/api/v1")
 
 @app.get("/")
 async def root():

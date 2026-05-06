@@ -42,3 +42,4 @@ from . import device         # Imports Organization and Device models
 from . import camera         # Imports Camera and CameraRule models
 from . import violation      # Imports Violation model
 from . import activity_log   # Imports ActivityLog model
+from . import notification   # Imports OrgNotificationPolicy, UserNotificationPref, NotificationLog

@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 style="margin:0 0 6px 0;font-size:22px;color:#fff;font-weight:700;">{{ period_label }} analytics report</h1>
+<p style="margin:0 0 28px 0;font-size:14px;color:#A78BFA;">{{ org_name }} &middot; {{ date_range }}</p>
+
+<!-- Headline metrics -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+  <tr>
+    <td style="padding:16px;background:rgba(139,92,246,0.08);border-radius:10px;text-align:center;">
+      <div style="font-size:24px;font-weight:800;color:#fff;">{{ headline.total }}</div>
+      <div style="font-size:10px;text-transform:uppercase;color:#8B7FB0;letter-spacing:1.2px;margin-top:4px;">Violations</div>
+      {% if headline.total_delta is not none %}
+        <div style="font-size:11px;color:{% if headline.total_delta >= 0 %}#FCA5A5{% else %}#6EE7B7{% endif %};margin-top:4px;font-weight:600;">
+          {{ '↑' if headline.total_delta >= 0 else '↓' }} {{ headline.total_delta|abs }}% vs prior
+        </div>
+      {% endif %}
+    </td>
+    <td width="8"></td>
+    <td style="padding:16px;background:rgba(16,185,129,0.08);border-radius:10px;text-align:center;">
+      <div style="font-size:24px;font-weight:800;color:#6EE7B7;">{{ headline.resolved_pct }}%</div>
+      <div style="font-size:10px;text-transform:uppercase;color:#6EE7B7;letter-spacing:1.2px;margin-top:4px;">Resolved</div>
+    </td>
+    <td width="8"></td>
+    <td style="padding:16px;background:rgba(245,158,11,0.08);border-radius:10px;text-align:center;">
+      <div style="font-size:24px;font-weight:800;color:#FCD34D;">{{ headline.mttr_str }}</div>
+      <div style="font-size:10px;text-transform:uppercase;color:#FCD34D;letter-spacing:1.2px;margin-top:4px;">MTTR</div>
+    </td>
+    <td width="8"></td>
+    <td style="padding:16px;background:rgba(167,139,250,0.08);border-radius:10px;text-align:center;">
+      <div style="font-size:24px;font-weight:800;color:#A78BFA;">{{ headline.precision_pct }}%</div>
+      <div style="font-size:10px;text-transform:uppercase;color:#A78BFA;letter-spacing:1.2px;margin-top:4px;">Precision</div>
+    </td>
+  </tr>
+</table>
+
+<!-- Severity breakdown -->
+<h3 style="margin:24px 0 12px 0;font-size:13px;text-transform:uppercase;letter-spacing:1.5px;color:#8B7FB0;">Severity breakdown</h3>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+{% for s in severity_breakdown %}
+  <tr><td style="padding:6px 0;">
+    <table role="presentation" width="100%"><tr>
+      <td width="80" style="font-size:12px;color:#fff;font-weight:600;">{{ s.label }}</td>
+      <td>
+        <div style="background:rgba(139,92,246,0.1);border-radius:4px;height:10px;overflow:hidden;">
+          <div style="background:{{ s.color }};height:10px;width:{{ s.pct }}%;border-radius:4px;"></div>
+        </div>
+      </td>
+      <td width="50" align="right" style="font-size:12px;color:#A78BFA;font-weight:600;padding-left:10px;">{{ s.count }}</td>
+    </tr></table>
+  </td></tr>
+{% endfor %}
+</table>
+
+<!-- Top cameras -->
+{% if top_cameras %}
+<h3 style="margin:28px 0 12px 0;font-size:13px;text-transform:uppercase;letter-spacing:1.5px;color:#8B7FB0;">Top 5 cameras</h3>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+{% for c in top_cameras %}
+  <tr><td style="padding:8px 12px;background:rgba(139,92,246,0.05);border-radius:8px;margin-bottom:6px;">
+    <table role="presentation" width="100%"><tr>
+      <td><span style="font-size:13px;color:#fff;">{{ loop.index }}. {{ c.name }}</span></td>
+      <td align="right"><span style="font-size:13px;color:#A78BFA;font-weight:700;">{{ c.count }}</span></td>
+    </tr></table>
+  </td></tr><tr><td height="6"></td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
+<!-- Top locations -->
+{% if top_locations %}
+<h3 style="margin:28px 0 12px 0;font-size:13px;text-transform:uppercase;letter-spacing:1.5px;color:#8B7FB0;">Top 5 locations</h3>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+{% for l in top_locations %}
+  <tr><td style="padding:8px 12px;background:rgba(16,185,129,0.05);border-radius:8px;">
+    <table role="presentation" width="100%"><tr>
+      <td><span style="font-size:13px;color:#fff;">{{ loop.index }}. {{ l.name }}</span></td>
+      <td align="right"><span style="font-size:13px;color:#6EE7B7;font-weight:700;">{{ l.count }}</span></td>
+    </tr></table>
+  </td></tr><tr><td height="6"></td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
+<!-- Top types -->
+{% if top_types %}
+<h3 style="margin:28px 0 12px 0;font-size:13px;text-transform:uppercase;letter-spacing:1.5px;color:#8B7FB0;">Top 5 violation types</h3>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+{% for t in top_types %}
+  <tr><td style="padding:8px 12px;background:rgba(245,158,11,0.05);border-radius:8px;">
+    <table role="presentation" width="100%"><tr>
+      <td><span style="font-size:13px;color:#fff;">{{ loop.index }}. {{ t.name }}</span></td>
+      <td align="right"><span style="font-size:13px;color:#FCD34D;font-weight:700;">{{ t.count }}</span></td>
+    </tr></table>
+  </td></tr><tr><td height="6"></td></tr>
+{% endfor %}
+</table>
+{% endif %}
+
+<!-- Resolution funnel -->
+<h3 style="margin:28px 0 12px 0;font-size:13px;text-transform:uppercase;letter-spacing:1.5px;color:#8B7FB0;">Resolution funnel</h3>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+  <tr>
+    <td style="padding:12px;background:rgba(139,92,246,0.08);border-radius:8px;text-align:center;">
+      <div style="font-size:18px;font-weight:700;color:#fff;">{{ funnel.open }}</div>
+      <div style="font-size:10px;color:#8B7FB0;text-transform:uppercase;letter-spacing:1px;">Open</div>
+    </td>
+    <td width="6"></td>
+    <td style="padding:12px;background:rgba(16,185,129,0.08);border-radius:8px;text-align:center;">
+      <div style="font-size:18px;font-weight:700;color:#6EE7B7;">{{ funnel.resolved }}</div>
+      <div style="font-size:10px;color:#6EE7B7;text-transform:uppercase;letter-spacing:1px;">Resolved</div>
+    </td>
+    <td width="6"></td>
+    <td style="padding:12px;background:rgba(239,68,68,0.08);border-radius:8px;text-align:center;">
+      <div style="font-size:18px;font-weight:700;color:#FCA5A5;">{{ funnel.false_positive }}</div>
+      <div style="font-size:10px;color:#FCA5A5;text-transform:uppercase;letter-spacing:1px;">False +</div>
+    </td>
+  </tr>
+</table>
+
+<div style="margin-top:28px;">
+  <a href="{{ app_url }}/dashboard/analytics"
+     style="display:inline-block;padding:12px 24px;background:linear-gradient(135deg,#8B5CF6 0%,#10B981 100%);color:#fff;text-decoration:none;border-radius:10px;font-weight:600;font-size:13px;">
+    Open analytics →
+  </a>
+</div>
+{% endblock %}

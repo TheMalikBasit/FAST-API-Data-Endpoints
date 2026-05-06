@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block content %}
+<h1 style="margin:0 0 6px 0;font-size:22px;color:#fff;font-weight:700;">Your daily safety digest</h1>
+<p style="margin:0 0 24px 0;font-size:14px;color:#A78BFA;">{{ period_label }} &middot; {{ org_name }}</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+  <tr>
+    <td style="padding:18px;background:rgba(139,92,246,0.08);border-radius:10px;text-align:center;">
+      <div style="font-size:28px;font-weight:800;color:#fff;">{{ totals.total }}</div>
+      <div style="font-size:10px;text-transform:uppercase;color:#8B7FB0;letter-spacing:1.5px;margin-top:4px;">Total</div>
+    </td>
+    <td width="10"></td>
+    <td style="padding:18px;background:rgba(239,68,68,0.08);border-radius:10px;text-align:center;">
+      <div style="font-size:28px;font-weight:800;color:#FCA5A5;">{{ totals.critical }}</div>
+      <div style="font-size:10px;text-transform:uppercase;color:#FCA5A5;letter-spacing:1.5px;margin-top:4px;">Critical</div>
+    </td>
+    <td width="10"></td>
+    <td style="padding:18px;background:rgba(16,185,129,0.08);border-radius:10px;text-align:center;">
+      <div style="font-size:28px;font-weight:800;color:#6EE7B7;">{{ totals.resolved_pct }}%</div>
+      <div style="font-size:10px;text-transform:uppercase;color:#6EE7B7;letter-spacing:1.5px;margin-top:4px;">Resolved</div>
+    </td>
+  </tr>
+</table>
+
+{% if by_camera %}
+<h3 style="margin:24px 0 12px 0;font-size:13px;text-transform:uppercase;letter-spacing:1.5px;color:#8B7FB0;">By camera</h3>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+  {% for c in by_camera %}
+  <tr><td style="padding:10px 0;border-bottom:1px solid rgba(139,92,246,0.1);">
+    <table role="presentation" width="100%"><tr>
+      <td>
+        <div style="font-size:14px;color:#fff;font-weight:600;">{{ c.name }}</div>
+        {% if c.location %}<div style="font-size:11px;color:#8B7FB0;">{{ c.location }}</div>{% endif %}
+      </td>
+      <td align="right">
+        <span style="display:inline-block;padding:4px 10px;background:rgba(139,92,246,0.2);border-radius:12px;font-size:12px;color:#A78BFA;font-weight:600;">{{ c.count }}</span>
+      </td>
+    </tr></table>
+  </td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<div style="padding:24px;background:rgba(16,185,129,0.06);border-radius:10px;text-align:center;color:#6EE7B7;">
+  ✓ No violations recorded in this period.
+</div>
+{% endif %}
+
+<div style="margin-top:28px;">
+  <a href="{{ app_url }}/dashboard/violations"
+     style="display:inline-block;padding:12px 24px;background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.4);color:#A78BFA;text-decoration:none;border-radius:10px;font-weight:600;font-size:13px;">
+    Open dashboard →
+  </a>
+</div>
+{% endblock %}

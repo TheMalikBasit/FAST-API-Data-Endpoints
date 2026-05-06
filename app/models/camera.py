@@ -16,9 +16,23 @@ class Camera(BaseModel):
     status = Column(String(50), default="Offline")
 
     # Define relationships
+    # passive_deletes=True + cascade="all, delete" defers cascade to the DB's
+    # ondelete="CASCADE" FK constraint, so async session.delete() doesn't try
+    # to lazy-load children (which raises MissingGreenlet in async mode).
     device = relationship("Device", back_populates="cameras")
-    rules = relationship("CameraRule", uselist=False, back_populates="camera") # One-to-one relationship
-    violations = relationship("Violation", back_populates="camera") # One camera has many violations
+    rules = relationship(
+        "CameraRule",
+        uselist=False,
+        back_populates="camera",
+        cascade="all, delete",
+        passive_deletes=True,
+    )
+    violations = relationship(
+        "Violation",
+        back_populates="camera",
+        cascade="all, delete",
+        passive_deletes=True,
+    )
     location = Column(String(255), nullable=True)
 
 class CameraRule(BaseModel):

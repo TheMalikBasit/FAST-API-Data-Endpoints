@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<div style="display:inline-block;padding:6px 14px;background:#10B981;color:#fff;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:18px;">
+  Test Email
+</div>
+<h1 style="margin:0 0 14px 0;font-size:22px;color:#fff;font-weight:700;">SMTP is wired correctly ✓</h1>
+<p style="margin:0 0 8px 0;font-size:14px;color:#A78BFA;line-height:1.6;">
+  Hi {{ recipient_name }}, this is a test email from the <strong style="color:#fff;">{{ org_name }}</strong> notification system.
+</p>
+<p style="margin:0 0 24px 0;font-size:14px;color:#A78BFA;line-height:1.6;">
+  If you're seeing this, your SMTP configuration is healthy and ready to deliver real-time violation alerts, daily digests, and analytics reports.
+</p>
+<div style="padding:14px;background:rgba(139,92,246,0.08);border-radius:10px;border:1px solid rgba(139,92,246,0.2);font-size:12px;color:#A78BFA;">
+  <strong style="color:#fff;">Sent at:</strong> {{ sent_at_str }}<br/>
+  <strong style="color:#fff;">From:</strong> {{ from_label }}
+</div>
+{% endblock %}

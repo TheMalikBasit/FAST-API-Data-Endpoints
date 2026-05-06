@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+{% set sev_color = {
+  'Critical':'#EF4444', 'High':'#F97316', 'Medium':'#F59E0B', 'Low':'#10B981'
+}.get(severity, '#8B5CF6') %}
+
+<div style="display:inline-block;padding:6px 14px;background:{{ sev_color }};color:#fff;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:18px;">
+  {{ severity }} Violation
+</div>
+
+<h1 style="margin:0 0 6px 0;font-size:22px;color:#fff;font-weight:700;line-height:1.3;">
+  {{ violation_type_label }}
+</h1>
+<p style="margin:0 0 24px 0;font-size:14px;color:#A78BFA;">
+  Detected at <strong style="color:#fff;">{{ camera_name }}</strong>{% if camera_location %} &middot; {{ camera_location }}{% endif %}
+</p>
+
+{% if snapshot_cid %}
+<div style="background:#000;border-radius:12px;overflow:hidden;border:1px solid rgba(139,92,246,0.3);margin-bottom:24px;">
+  <img src="cid:{{ snapshot_cid }}" alt="Violation snapshot" style="display:block;width:100%;height:auto;" />
+</div>
+{% endif %}
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+  <tr>
+    <td style="padding:14px;background:rgba(139,92,246,0.08);border-radius:10px;border:1px solid rgba(139,92,246,0.2);">
+      <div style="font-size:10px;text-transform:uppercase;color:#8B7FB0;letter-spacing:1px;margin-bottom:4px;">When</div>
+      <div style="font-size:14px;color:#fff;font-weight:600;">{{ timestamp_str }}</div>
+    </td>
+    <td width="12"></td>
+    <td style="padding:14px;background:rgba(16,185,129,0.08);border-radius:10px;border:1px solid rgba(16,185,129,0.2);">
+      <div style="font-size:10px;text-transform:uppercase;color:#6EE7B7;letter-spacing:1px;margin-bottom:4px;">Confidence</div>
+      <div style="font-size:14px;color:#fff;font-weight:600;">{{ confidence_pct }}%</div>
+    </td>
+  </tr>
+</table>
+
+{% if suppressed_count and suppressed_count > 0 %}
+<div style="padding:12px 14px;background:rgba(245,158,11,0.1);border-left:3px solid #F59E0B;border-radius:6px;margin-bottom:24px;font-size:13px;color:#FCD34D;">
+  <strong>{{ suppressed_count }} more violation{{ 's' if suppressed_count != 1 else '' }}</strong> fired on this camera in the last 10 minutes.
+</div>
+{% endif %}
+
+<a href="{{ app_url }}/dashboard/violations/{{ violation_id }}"
+   style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#8B5CF6 0%,#7C3AED 100%);color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:14px;letter-spacing:0.5px;">
+  View in Dashboard →
+</a>
+{% endblock %}
