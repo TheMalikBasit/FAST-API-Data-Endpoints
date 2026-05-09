@@ -26,7 +26,8 @@ async def update_camera_rules(
     # 2. Fetch CameraRule (Same logic as before)
     stmt = select(CameraRule).join(Camera).where(
         CameraRule.camera_id == rules_data.camera_id,
-        Camera.organization_id == current_user.organization_id
+        Camera.organization_id == current_user.organization_id,
+        Camera.deleted_at.is_(None),
     )
     result = await db.execute(stmt)
     rule = result.scalars().first()
@@ -44,7 +45,10 @@ async def update_camera_rules(
     rule.active_rules = rules_data.active_rules
 
     # 4. Update Name
-    camera_stmt = select(Camera).where(Camera.id == rules_data.camera_id)
+    camera_stmt = select(Camera).where(
+        Camera.id == rules_data.camera_id,
+        Camera.deleted_at.is_(None),
+    )
     cam = (await db.execute(camera_stmt)).scalars().first()
     if cam:
         if cam.name != rules_data.name:

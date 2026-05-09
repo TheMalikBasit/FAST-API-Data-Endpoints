@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey, Boolean, Integer
+from sqlalchemy import Column, String, ForeignKey, Boolean, Integer, DateTime
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from .base import BaseModel
@@ -14,6 +14,10 @@ class Camera(BaseModel):
     rtsp_url = Column(String, nullable=False)
     local_timezone = Column(String(50), nullable=False)
     status = Column(String(50), default="Offline")
+
+    # Soft-delete marker. When set, the camera is hidden from the active fleet
+    # but the row remains so historical violations keep resolving camera_id.
+    deleted_at = Column(DateTime(timezone=True), nullable=True, index=True)
 
     # Define relationships
     # passive_deletes=True + cascade="all, delete" defers cascade to the DB's
@@ -43,8 +47,16 @@ class CameraRule(BaseModel):
     camera_id = Column(UUID(as_uuid=True), ForeignKey('cameras.id', ondelete="CASCADE"), primary_key=True)
     is_active = Column(Boolean, default=True, nullable=False)
 
-    # DYNAMIC FIELD: Stores rules as {"hard_hat": true, "vest": false, "harness": true}
-    # The keys here will match the 'object_code' from your capabilities table.
+    # DYNAMIC FIELD: keys are object_codes from the capabilities table.
+    # Values are nested config dicts. Required fields: required, severity.
+    # Optional (Phase 1+): validation_window_sec, flicker_tolerance_sec,
+    #                     cooldown_sec, min_confidence, scope, active_hours.
+    # Example:
+    #   {
+    #     "hard_hat": {"required": true, "severity": "High"},
+    #     "phone":    {"required": false, "severity": "Medium",
+    #                  "validation_window_sec": 30, "cooldown_sec": 120}
+    #   }
     active_rules = Column(JSONB, default={}, nullable=False)
 
     detection_zones = Column(JSONB)

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import func
 from typing import List
 from uuid import UUID
 
@@ -71,7 +72,6 @@ async def create_camera(
         active_rules={},
     )
 
-"""This needs to be reviewed again cuz deleting the violation along with the camera is not a good practice"""
 @router.delete("/{camera_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_camera(
         camera_id: UUID,
@@ -79,17 +79,19 @@ async def delete_camera(
         db: AsyncSession = Depends(get_db),
         background_tasks: BackgroundTasks = BackgroundTasks(),
 ):
-    """Deletes a camera and its associated rules and violations (cascade)."""
+    """Soft-deletes a camera. Past violations remain in history; the row stays
+    so violation joins keep resolving the camera's name."""
     stmt = select(Camera).where(
         Camera.id == camera_id,
-        Camera.organization_id == current_user.organization_id
+        Camera.organization_id == current_user.organization_id,
+        Camera.deleted_at.is_(None),
     )
     camera = (await db.execute(stmt)).scalars().first()
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found.")
 
     camera_name = camera.name
-    await db.delete(camera)
+    camera.deleted_at = func.now()
     await db.commit()
 
     background_tasks.add_task(
@@ -115,7 +117,8 @@ async def list_cameras(
     stmt = select(Camera, CameraRule.active_rules).outerjoin(
         CameraRule, Camera.id == CameraRule.camera_id
     ).where(
-        Camera.organization_id == current_user.organization_id
+        Camera.organization_id == current_user.organization_id,
+        Camera.deleted_at.is_(None),
     )
 
     result = await db.execute(stmt)
@@ -145,7 +148,8 @@ async def update_camera(
     """Updates camera details and rules from the UI."""
     stmt = select(Camera).where(
         Camera.id == camera_id,
-        Camera.organization_id == current_user.organization_id
+        Camera.organization_id == current_user.organization_id,
+        Camera.deleted_at.is_(None),
     )
     camera = (await db.execute(stmt)).scalars().first()
 

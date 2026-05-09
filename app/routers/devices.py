@@ -66,7 +66,10 @@ async def get_device_config(device_id: UUID, db: AsyncSession = Depends(get_db))
     if not device:
         raise HTTPException(status_code=404, detail="Device not found.")
 
-    stmt = select(Camera, CameraRule).join(CameraRule).where(Camera.device_id == device_id)
+    stmt = select(Camera, CameraRule).join(CameraRule).where(
+        Camera.device_id == device_id,
+        Camera.deleted_at.is_(None),
+    )
     results = await db.execute(stmt)
 
     config_list = []
@@ -101,6 +104,7 @@ async def set_camera_active(
     cam_stmt = select(Camera).where(
         Camera.id == camera_id,
         Camera.device_id == current_device.id,
+        Camera.deleted_at.is_(None),
     )
     camera = (await db.execute(cam_stmt)).scalars().first()
     if not camera:

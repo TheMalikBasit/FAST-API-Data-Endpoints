@@ -10,6 +10,7 @@ from app.models.user import User
 from app.models.violation import Violation
 from app.models.camera import Camera
 from app.models.device import Organization
+from app.models.capabilities import OrganizationCapability
 from app.core.dependencies import get_current_active_user
 from app.core.activity_logger import log_activity
 
@@ -97,6 +98,14 @@ async def get_dashboard_stats(
 
     raw_trend = (await db.execute(stmt_trend)).all()
 
+    # Capability set for this org. Violation rows whose violation_type is no
+    # longer here (org changed dataset / discontinued tracking) get rolled
+    # into a single "others" bucket so the dashboard chart can surface them.
+    cap_stmt = select(OrganizationCapability.object_code).where(
+        OrganizationCapability.organization_id == current_user.organization_id
+    )
+    mapped_codes = {row[0] for row in (await db.execute(cap_stmt)).all()}
+
     daily_data = {}
     for d in range(1, last_day + 1):
         dt = datetime(year, month, d)
@@ -107,6 +116,8 @@ async def get_dashboard_stats(
             "total_valid": 0,
             "total_false": 0,
         }
+
+    others_breakdown: Dict[str, int] = {}
 
     for row in raw_trend:
         day_label = row.day.strftime("%d %b")
@@ -120,7 +131,11 @@ async def get_dashboard_stats(
                 daily_data[day_label][key] = daily_data[day_label].get(key, 0) + count
             else:
                 daily_data[day_label]["total_valid"] += count
-                daily_data[day_label][v_type] = daily_data[day_label].get(v_type, 0) + count
+                if v_type in mapped_codes:
+                    daily_data[day_label][v_type] = daily_data[day_label].get(v_type, 0) + count
+                else:
+                    daily_data[day_label]["others"] = daily_data[day_label].get("others", 0) + count
+                    others_breakdown[v_type] = others_breakdown.get(v_type, 0) + count
 
     # Room Stats (Note that we are extracting violations count based on locations not cameras, this location can be considered as department based or org preference)
     stmt_room = select(Camera.location, func.count(Violation.id).label("count")) \
@@ -137,7 +152,8 @@ async def get_dashboard_stats(
             "resolution_rate": resolution_rate
         },
         "trend_data": list(daily_data.values()),
-        "room_data": chart_by_room
+        "room_data": chart_by_room,
+        "others_breakdown": others_breakdown,
     }
 
 
@@ -180,6 +196,13 @@ async def get_day_details(
 
     raw_hourly = (await db.execute(stmt_hourly)).all()
 
+    # Same drift handling as dashboard-stats: violation_types not in the
+    # current org_capabilities get rolled into a single "others" series.
+    cap_stmt = select(OrganizationCapability.object_code).where(
+        OrganizationCapability.organization_id == current_user.organization_id
+    )
+    mapped_codes = {row[0] for row in (await db.execute(cap_stmt)).all()}
+
     hourly_data = []
     for h in range(24):
         time_label = datetime.strptime(str(h), "%H").strftime("%I%p").lstrip("0")
@@ -189,6 +212,8 @@ async def get_day_details(
             "total_violations": 0,
             "total_false": 0
         })
+
+    others_breakdown: Dict[str, int] = {}
 
     for row in raw_hourly:
         h_idx = int(row.hour)
@@ -202,7 +227,11 @@ async def get_day_details(
             hourly_data[h_idx][key] = hourly_data[h_idx].get(key, 0) + count
         else:
             hourly_data[h_idx]["total_violations"] += count
-            hourly_data[h_idx][v_type] = hourly_data[h_idx].get(v_type, 0) + count
+            if v_type in mapped_codes:
+                hourly_data[h_idx][v_type] = hourly_data[h_idx].get(v_type, 0) + count
+            else:
+                hourly_data[h_idx]["others"] = hourly_data[h_idx].get("others", 0) + count
+                others_breakdown[v_type] = others_breakdown.get(v_type, 0) + count
 
     # B. Detailed List of Violations
     stmt_list = select(
@@ -255,7 +284,8 @@ async def get_day_details(
         "stats": stats,
         "hourly_data": hourly_data,
         "violations": violations_list,
-        "room_data": day_room_data
+        "room_data": day_room_data,
+        "others_breakdown": others_breakdown,
     }
 
 

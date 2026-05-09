@@ -58,7 +58,10 @@ async def log_violation(
         raise HTTPException(status_code=401, detail="Invalid Device Token")
 
     # B. Validate Camera & Organization
-    stmt_cam = select(Camera).where(Camera.id == camera_id)
+    stmt_cam = select(Camera).where(
+        Camera.id == camera_id,
+        Camera.deleted_at.is_(None),
+    )
     result_cam = await db.execute(stmt_cam)
     camera = result_cam.scalars().first()
 
