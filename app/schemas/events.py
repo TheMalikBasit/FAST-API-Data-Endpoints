@@ -31,7 +31,7 @@ class ResolvedUpdate(BaseModel):
 
 class ViolationResponse(BaseModel):
     """Response sent back to UI/Dashboard."""
-    id: UUID
+    id: str
     organization_id: UUID  # Added back
     camera_id: UUID
     timestamp_utc: datetime

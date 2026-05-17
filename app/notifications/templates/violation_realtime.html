@@ -1,48 +1,328 @@
-{% extends "base.html" %}
-{% block content %}
-{% set sev_color = {
-  'Critical':'#EF4444', 'High':'#F97316', 'Medium':'#F59E0B', 'Low':'#10B981'
-}.get(severity, '#8B5CF6') %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="color-scheme" content="light only" />
+<meta name="supported-color-schemes" content="light only" />
+<title>{{ subject }}</title>
+<style type="text/css">
+  /* Mobile rules. Inline styles win on desktop (Outlook on Windows ignores
+     media queries entirely), so these only apply on phone/tablet clients
+     that parse <style> in <head>: Apple Mail, iOS Gmail, Android Gmail,
+     Outlook iOS/Android, Yahoo, Spark. */
 
-<div style="display:inline-block;padding:6px 14px;background:{{ sev_color }};color:#fff;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:18px;">
-  {{ severity }} Violation
-</div>
+  /* Tablet & narrow desktop */
+  @media only screen and (max-width:680px){
+    .px-card { padding-left:20px !important; padding-right:20px !important; }
+    .px-outer { padding-left:12px !important; padding-right:12px !important; }
+    .pt-page { padding-top:24px !important; padding-bottom:40px !important; }
+  }
 
-<h1 style="margin:0 0 6px 0;font-size:22px;color:#fff;font-weight:700;line-height:1.3;">
-  {{ violation_type_label }}
-</h1>
-<p style="margin:0 0 24px 0;font-size:14px;color:#A78BFA;">
-  Detected at <strong style="color:#fff;">{{ camera_name }}</strong>{% if camera_location %} &middot; {{ camera_location }}{% endif %}
-</p>
+  /* Phone */
+  @media only screen and (max-width:520px){
+    .m-hide { display:none !important; }
 
-{% if snapshot_cid %}
-<div style="background:#000;border-radius:12px;overflow:hidden;border:1px solid rgba(139,92,246,0.3);margin-bottom:24px;">
-  <img src="cid:{{ snapshot_cid }}" alt="Violation snapshot" style="display:block;width:100%;height:auto;" />
-</div>
-{% endif %}
+    /* Header: stack brand and stamp */
+    .head-cell-l, .head-cell-r {
+      display:block !important;
+      width:100% !important;
+      text-align:left !important;
+      padding:0 !important;
+    }
+    .head-cell-r { padding-top:8px !important; font-size:10px !important; }
 
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
-  <tr>
-    <td style="padding:14px;background:rgba(139,92,246,0.08);border-radius:10px;border:1px solid rgba(139,92,246,0.2);">
-      <div style="font-size:10px;text-transform:uppercase;color:#8B7FB0;letter-spacing:1px;margin-bottom:4px;">When</div>
-      <div style="font-size:14px;color:#fff;font-weight:600;">{{ timestamp_str }}</div>
-    </td>
-    <td width="12"></td>
-    <td style="padding:14px;background:rgba(16,185,129,0.08);border-radius:10px;border:1px solid rgba(16,185,129,0.2);">
-      <div style="font-size:10px;text-transform:uppercase;color:#6EE7B7;letter-spacing:1px;margin-bottom:4px;">Confidence</div>
-      <div style="font-size:14px;color:#fff;font-weight:600;">{{ confidence_pct }}%</div>
-    </td>
-  </tr>
+    /* Alert: stack pill above headline */
+    .alert-cell-pill, .alert-cell-copy {
+      display:block !important;
+      width:100% !important;
+      padding:0 !important;
+    }
+    .alert-cell-pill { padding-bottom:10px !important; }
+    .alert-h1 { font-size:21px !important; line-height:1.2 !important; }
+    .alert-p { font-size:13px !important; }
+
+    /* Snapshot caption: stack */
+    .snap-cap-l, .snap-cap-r {
+      display:block !important;
+      width:100% !important;
+      text-align:left !important;
+      font-size:10px !important;
+      padding-top:4px !important;
+    }
+    .snap-cap-l { padding-top:10px !important; }
+
+    /* Details: collapse 2-col to 1-col stacked */
+    .details-k, .details-v {
+      display:block !important;
+      width:100% !important;
+      border-right:0 !important;
+      box-sizing:border-box !important;
+    }
+    .details-k {
+      background:transparent !important;
+      padding:10px 14px 4px !important;
+      font-size:10px !important;
+    }
+    .details-v {
+      padding:0 14px 14px !important;
+      font-size:13.5px !important;
+    }
+
+    /* CTA: full-width stacked buttons */
+    .cta-cell {
+      display:block !important;
+      width:100% !important;
+      padding:0 0 8px 0 !important;
+    }
+    .cta-btn {
+      display:block !important;
+      width:auto !important;
+      text-align:center !important;
+      padding:13px 16px !important;
+    }
+
+    /* Footer brand row: stack */
+    .foot-brand-l, .foot-brand-r {
+      display:block !important;
+      width:100% !important;
+      text-align:left !important;
+      padding:0 !important;
+    }
+    .foot-brand-r { padding-top:4px !important; }
+  }
+
+  /* Very small phones */
+  @media only screen and (max-width:360px){
+    .alert-h1 { font-size:19px !important; }
+    .px-card { padding-left:14px !important; padding-right:14px !important; }
+  }
+</style>
+</head>
+<body style="margin:0;padding:0;background:#FAF8F4;color:#26221E;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="pt-page px-outer" style="background:#FAF8F4;padding:32px 12px 56px;">
+  <tr><td align="center">
+
+    <!-- viewer meta row (hidden on phone) -->
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="m-hide" style="max-width:680px;margin:0 auto 14px;">
+      <tr>
+        <td style="font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#9A938B;padding:0 4px;">
+          <span style="display:inline-block;width:6px;height:6px;border-radius:99px;background:#E08B3E;margin-right:8px;vertical-align:middle;"></span>Incident notification
+        </td>
+        <td align="right" style="font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#9A938B;padding:0 4px;">
+          Severity: {{ severity }}
+        </td>
+      </tr>
+    </table>
+
+    <!-- email card -->
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:680px;background:#FDFCF8;border:1px solid #E5E0D9;border-radius:14px;overflow:hidden;">
+
+      <!-- HEADER -->
+      <tr>
+        <td class="px-card" style="padding:22px 28px;border-bottom:1px solid #EEEAE3;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td class="head-cell-l" style="font-size:14px;font-weight:600;letter-spacing:-0.01em;color:#26221E;">
+                <span style="display:inline-block;width:22px;height:22px;border-radius:6px;background:#26221E;vertical-align:middle;margin-right:10px;"></span>
+                WSMS <span style="color:#9A938B;font-weight:400;">/ Safety Monitor</span>
+              </td>
+              <td class="head-cell-r" align="right" style="font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:#9A938B;">
+                INC-{{ incident_short_id }}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+
+      <!-- ALERT BAND -->
+      <tr>
+        <td class="px-card" style="padding:18px 28px;background:#FAF1E1;border-bottom:1px solid #EEEAE3;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td class="alert-cell-pill" valign="top" width="110" style="padding-right:14px;">
+                <span style="display:inline-block;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:#8A4E1A;background:#FDFCF8;border:1px solid #E8C99A;padding:5px 9px;border-radius:99px;white-space:nowrap;">&#9888; Violation</span>
+              </td>
+              <td class="alert-cell-copy" valign="top">
+                <h1 class="alert-h1" style="margin:0 0 6px;font-family:Georgia,'Times New Roman',serif;font-weight:500;font-size:22px;line-height:1.2;letter-spacing:-0.01em;color:#26221E;">
+                  A safety rule was just broken on <em style="color:#8A4E1A;font-weight:500;">{{ camera_name }}</em>.
+                </h1>
+                <p class="alert-p" style="margin:0;font-size:13.5px;line-height:1.5;color:#6A645E;">
+                  Our vision system flagged <strong style="color:#26221E;font-weight:600;">{{ violation_type_label }}</strong>. Review the snapshot below and confirm whether action is needed.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+
+      <!-- SNAPSHOT -->
+      <tr>
+        <td class="px-card" style="padding:24px 28px 0;">
+          {% if snapshot_cid %}
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #E5E0D9;border-radius:8px;overflow:hidden;background:#000;">
+            <tr>
+              <td style="line-height:0;">
+                <img src="cid:{{ snapshot_cid }}" alt="Violation snapshot" width="624" style="display:block;width:100%;max-width:624px;height:auto;border:0;outline:none;text-decoration:none;" />
+              </td>
+            </tr>
+          </table>
+          {% else %}
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #E5E0D9;border-radius:8px;background:#EEEAE3;">
+            <tr>
+              <td align="center" style="padding:48px 16px;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#6A645E;">
+                Snapshot unavailable
+              </td>
+            </tr>
+          </table>
+          {% endif %}
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td class="snap-cap-l" style="padding:10px 2px 0;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:10.5px;letter-spacing:0.5px;text-transform:uppercase;color:#9A938B;">
+                Live &middot; {{ camera_name }}
+              </td>
+              <td class="snap-cap-r" align="right" style="padding:10px 2px 0;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:10.5px;letter-spacing:0.5px;text-transform:uppercase;color:#9A938B;">
+                Frame captured at detection
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+
+      <!-- DETAILS GRID (as table rows) -->
+      <tr>
+        <td class="px-card" style="padding:24px 28px 0;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px solid #E5E0D9;border-radius:10px;border-collapse:separate;overflow:hidden;">
+
+            <tr>
+              <td class="details-k" width="150" style="padding:14px 16px;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#9A938B;background:#F7F4EE;border-right:1px solid #EEEAE3;border-bottom:1px solid #EEEAE3;vertical-align:middle;">
+                Date &amp; time
+              </td>
+              <td class="details-v" style="padding:14px 18px;font-size:14px;color:#26221E;line-height:1.4;border-bottom:1px solid #EEEAE3;">
+                {{ local_timestamp_str }}
+                <span style="color:#9A938B;font-size:12.5px;">&nbsp;&middot; {{ tz_label }}</span>
+              </td>
+            </tr>
+
+            <tr>
+              <td class="details-k" width="150" style="padding:14px 16px;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#9A938B;background:#F7F4EE;border-right:1px solid #EEEAE3;border-bottom:1px solid #EEEAE3;vertical-align:middle;">
+                Location
+              </td>
+              <td class="details-v" style="padding:14px 18px;font-size:14px;color:#26221E;line-height:1.4;border-bottom:1px solid #EEEAE3;">
+                {% if camera_location %}{{ camera_location }}{% else %}<span style="color:#9A938B;">Not set</span>{% endif %}
+              </td>
+            </tr>
+
+            <tr>
+              <td class="details-k" width="150" style="padding:14px 16px;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#9A938B;background:#F7F4EE;border-right:1px solid #EEEAE3;border-bottom:1px solid #EEEAE3;vertical-align:middle;">
+                Camera
+              </td>
+              <td class="details-v" style="padding:14px 18px;font-size:14px;color:#26221E;line-height:1.4;border-bottom:1px solid #EEEAE3;">
+                {{ camera_name }}
+                {% if camera_status %}<span style="color:#9A938B;font-size:12.5px;">&nbsp;&middot; {{ camera_status|lower }}</span>{% endif %}
+              </td>
+            </tr>
+
+            <tr>
+              <td class="details-k" width="150" style="padding:14px 16px;font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#9A938B;background:#F7F4EE;border-right:1px solid #EEEAE3;vertical-align:middle;">
+                Violation
+              </td>
+              <td class="details-v" style="padding:14px 18px;font-size:14px;color:#26221E;line-height:1.5;">
+                {{ violation_type_label }} detected at <strong style="font-weight:600;">{{ camera_name }}</strong>.
+                &nbsp;<span style="color:#8A4E1A;font-weight:600;">Severity: {{ severity|lower }}</span>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+
+      {% if suppressed_count and suppressed_count > 0 %}
+      <!-- SUPPRESSED COUNT (extra signal, kept from prior template) -->
+      <tr>
+        <td class="px-card" style="padding:14px 28px 0;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#FAF1E1;border-left:3px solid #E08B3E;border-radius:6px;">
+            <tr>
+              <td style="padding:12px 14px;font-size:13px;color:#8A4E1A;line-height:1.5;">
+                <strong>{{ suppressed_count }} more violation{{ 's' if suppressed_count != 1 else '' }}</strong> fired on this camera in the last 10 minutes.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+      {% endif %}
+
+      <!-- CTA -->
+      <tr>
+        <td class="px-card" style="padding:24px 28px 8px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td class="cta-cell" style="padding-right:10px;" width="50%">
+                <a href="{{ app_url }}/dashboard/day/{{ local_date_str }}?violation={{ violation_id }}"
+                   class="cta-btn"
+                   style="display:inline-block;padding:12px 18px;background:#26221E;color:#FDFCF8;text-decoration:none;border-radius:8px;font-weight:500;font-size:14px;line-height:1;letter-spacing:0.2px;">
+                  Review on dashboard &nbsp;&rarr;
+                </a>
+              </td>
+              <td class="cta-cell" width="50%">
+                <a href="{{ view_all_url }}"
+                   class="cta-btn"
+                   style="display:inline-block;padding:12px 18px;background:transparent;color:#26221E;text-decoration:none;border:1px solid #E5E0D9;border-radius:8px;font-weight:500;font-size:14px;line-height:1;letter-spacing:0.2px;">
+                  View all incidents
+                </a>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+
+      <!-- CONTEXTUAL NOTE -->
+      <tr>
+        <td class="px-card" style="padding:16px 28px 24px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border:1px dashed #E5E0D9;border-radius:8px;">
+            <tr>
+              <td width="32" valign="top" style="padding:14px 0 14px 14px;">
+                <span style="display:inline-block;width:18px;height:18px;border-radius:99px;border:1px solid #E5E0D9;font-family:Georgia,'Times New Roman',serif;font-size:12px;font-style:italic;color:#6A645E;text-align:center;line-height:18px;">i</span>
+              </td>
+              <td style="padding:14px 16px 14px 6px;font-size:12.5px;line-height:1.5;color:#6A645E;">
+                This alert was generated automatically. The snapshot is retained per your organization&rsquo;s data-retention policy and is visible only to users with <em>Safety Officer</em> access or above.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+
+      <!-- FOOTER -->
+      <tr>
+        <td class="px-card" style="padding:22px 28px 26px;border-top:1px solid #EEEAE3;background:#F7F4EE;font-size:12px;color:#9A938B;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;">
+            <tr>
+              <td class="foot-brand-l" style="font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:#6A645E;">
+                WSMS &middot; Safety Monitor
+              </td>
+              <td class="foot-brand-r" align="right" style="font-family:'SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;font-size:10.5px;letter-spacing:1px;text-transform:uppercase;color:#9A938B;">
+                v {{ app_version }}
+              </td>
+            </tr>
+          </table>
+
+          <div style="padding-bottom:10px;line-height:1.8;">
+            <a href="{{ manage_prefs_url }}" style="color:#6A645E;text-decoration:none;border-bottom:1px solid #E5E0D9;padding-bottom:1px;margin-right:18px;">Notification settings</a>
+            <a href="{{ view_all_url }}" style="color:#6A645E;text-decoration:none;border-bottom:1px solid #E5E0D9;padding-bottom:1px;margin-right:18px;">View all incidents</a>
+            {% if unsubscribe_url %}<a href="{{ unsubscribe_url }}" style="color:#6A645E;text-decoration:none;border-bottom:1px solid #E5E0D9;padding-bottom:1px;">Unsubscribe</a>{% endif %}
+          </div>
+
+          <p style="margin:0;font-size:11px;line-height:1.6;color:#9A938B;">
+            You&rsquo;re receiving this because you&rsquo;re listed as a safety contact for <strong style="color:#6A645E;font-weight:500;">{{ org_name }}</strong>. Unsubscribing will stop all violation emails to this address; you can still view incidents inside the dashboard. Replies to this mailbox are not monitored.
+          </p>
+        </td>
+      </tr>
+
+    </table>
+
+  </td></tr>
 </table>
 
-{% if suppressed_count and suppressed_count > 0 %}
-<div style="padding:12px 14px;background:rgba(245,158,11,0.1);border-left:3px solid #F59E0B;border-radius:6px;margin-bottom:24px;font-size:13px;color:#FCD34D;">
-  <strong>{{ suppressed_count }} more violation{{ 's' if suppressed_count != 1 else '' }}</strong> fired on this camera in the last 10 minutes.
-</div>
-{% endif %}
-
-<a href="{{ app_url }}/dashboard/violations/{{ violation_id }}"
-   style="display:inline-block;padding:14px 28px;background:linear-gradient(135deg,#8B5CF6 0%,#7C3AED 100%);color:#fff;text-decoration:none;border-radius:10px;font-weight:700;font-size:14px;letter-spacing:0.5px;">
-  View in Dashboard →
-</a>
-{% endblock %}
+</body>
+</html>

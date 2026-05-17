@@ -80,8 +80,9 @@ class NotificationLog(BaseModel):
     channel = Column(String(20), nullable=False, default="email")
     # realtime | digest | analytics | test | suppressed
     kind = Column(String(20), nullable=False)
-    # violation_id (realtime/suppressed) or run id (digest/analytics) — nullable
-    ref_id = Column(UUID(as_uuid=True), nullable=True)
+    # violation_id (realtime/suppressed) or run id (digest/analytics) — nullable.
+    # String because violation IDs are now incident-style strings (INC-...).
+    ref_id = Column(String(64), nullable=True)
     # camera the realtime alert was about — used by throttle query
     camera_id = Column(
         UUID(as_uuid=True),

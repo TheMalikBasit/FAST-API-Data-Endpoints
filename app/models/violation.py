@@ -10,6 +10,11 @@ class Violation(BaseModel):
     """Corresponds to the 'violations' table (The event log)."""
     __tablename__ = 'violations'
 
+    # Override BaseModel.id: violations use human-readable incident IDs
+    # of the form INC-<LOCATION><YYYYMMDD_HHMMSSffffff>. Assigned explicitly
+    # by the route layer via app.utils.violation_id.generate_violation_id.
+    id = Column(String(64), primary_key=True, unique=True, nullable=False)
+
     # 1. Foreign Keys
     organization_id = Column(UUID(as_uuid=True),ForeignKey('organizations.id', ondelete="CASCADE"),nullable=False,index=True)
     camera_id = Column(UUID(as_uuid=True),ForeignKey('cameras.id', ondelete="CASCADE"),nullable=False)

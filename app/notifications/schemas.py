@@ -54,7 +54,7 @@ class NotificationLogRow(BaseModel):
     user_id: UUID
     channel: str
     kind: str
-    ref_id: Optional[UUID]
+    ref_id: Optional[str]
     camera_id: Optional[UUID]
     severity: Optional[str]
     status: str

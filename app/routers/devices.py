@@ -87,7 +87,11 @@ async def get_device_config(device_id: UUID, db: AsyncSession = Depends(get_db))
             "is_active": rules.is_active,
         })
 
-    return {"device_id": device_id, "cameras": config_list}
+    return {
+        "device_id": device_id,
+        "subscription": {"is_active": device.subscription_active},
+        "cameras": config_list,
+    }
 
 class CameraActiveUpdate(BaseModel):
     is_active: bool

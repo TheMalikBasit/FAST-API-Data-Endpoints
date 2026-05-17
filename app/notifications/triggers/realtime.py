@@ -3,13 +3,15 @@
 Called as a BackgroundTask from the violation-create endpoint.
 Spawns its own DB session because the request session is closed by then.
 """
+from datetime import datetime
 from pathlib import Path
-from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select, and_
 
 from app.db.database import AsyncSessionLocal as async_session_maker
 from app.models.camera import Camera
+from app.models.device import Organization
 from app.models.user import User
 from app.models.violation import Violation
 from app.models.notification import (
@@ -28,6 +30,24 @@ def _meets_floor(severity: str, floor: str) -> bool:
 
 def _humanize_type(t: str) -> str:
     return t.replace("_", " ").title() if t else "Safety violation"
+
+
+def _tz_label(tz: ZoneInfo, at: datetime) -> str:
+    """Render a short timezone label like 'PKT (UTC+5)' or 'UTC'.
+
+    The abbreviation (tzname) and offset both vary by date (DST), so we
+    resolve them at the violation's own timestamp.
+    """
+    moment = at.astimezone(tz)
+    abbr = moment.tzname() or str(tz)
+    offset = moment.utcoffset()
+    if offset is None:
+        return abbr
+    total_minutes = int(offset.total_seconds() // 60)
+    sign = "+" if total_minutes >= 0 else "-"
+    hours, minutes = divmod(abs(total_minutes), 60)
+    offset_str = f"UTC{sign}{hours}" if minutes == 0 else f"UTC{sign}{hours}:{minutes:02d}"
+    return f"{abbr} ({offset_str})"
 
 
 def _build_snapshot_attachment(snapshot_filename: str) -> tuple[list, str | None]:
@@ -50,7 +70,7 @@ def _build_snapshot_attachment(snapshot_filename: str) -> tuple[list, str | None
     }], cid
 
 
-async def dispatch(violation_id: UUID) -> None:
+async def dispatch(violation_id: str) -> None:
     """Fan out one violation to all eligible recipients (with throttling)."""
     async with async_session_maker() as db:
         # 1. Load violation + camera
@@ -95,6 +115,14 @@ async def dispatch(violation_id: UUID) -> None:
         # 4. Build snapshot attachment once
         attachments, cid = _build_snapshot_attachment(violation.snapshot_url)
 
+        incident_short_id = str(violation.id)
+
+        # Org name for the footer signature. Best-effort: a missing org row
+        # shouldn't block the email.
+        org_stmt = select(Organization).where(Organization.id == org_id)
+        organization = (await db.execute(org_stmt)).scalars().first()
+        org_name = organization.name if organization else "your organization"
+
         # 5. Per-recipient: filter, throttle, send
         for user, prefs in rows:
             if not prefs or not prefs.realtime_enabled:
@@ -122,6 +150,21 @@ async def dispatch(violation_id: UUID) -> None:
                 db, user_id=user.id, camera_id=camera.id,
             )
 
+            # Per-recipient local time: prefer the user's preference, fall back
+            # to the camera's zone, then UTC. The dashboard's /day/[date] page
+            # is partitioned by local calendar date, so the deep-link date must
+            # match the reader's own day or the modal won't auto-open.
+            tz_name = (prefs.timezone if prefs and prefs.timezone else None) \
+                or camera.local_timezone or "UTC"
+            try:
+                tz = ZoneInfo(tz_name)
+            except Exception:
+                tz = ZoneInfo("UTC")
+            local_moment = violation.timestamp_utc.astimezone(tz)
+            local_date_str = local_moment.strftime("%Y-%m-%d")
+            local_timestamp_str = local_moment.strftime("%b %d, %Y · %H:%M:%S")
+            tz_label = _tz_label(tz, violation.timestamp_utc)
+
             template_body = {
                 "subject": f"[{violation.severity}] {_humanize_type(violation.violation_type)} — {camera.name}",
                 "header_label": "Violation Alert",
@@ -129,12 +172,20 @@ async def dispatch(violation_id: UUID) -> None:
                 "violation_type_label": _humanize_type(violation.violation_type),
                 "camera_name": camera.name,
                 "camera_location": camera.location,
+                "camera_status": camera.status,
                 "timestamp_str": violation.timestamp_utc.strftime("%Y-%m-%d %H:%M UTC"),
-                "confidence_pct": "—",  # Violation row doesn't store confidence yet
+                "local_timestamp_str": local_timestamp_str,
+                "tz_label": tz_label,
                 "violation_id": str(violation.id),
+                "incident_short_id": incident_short_id,
+                "local_date_str": local_date_str,
                 "snapshot_cid": cid,
                 "suppressed_count": suppressed,
+                "org_name": org_name,
+                "app_version": settings.VERSION,
                 "app_url": settings.APP_PUBLIC_URL,
+                "manage_prefs_url": f"{settings.APP_PUBLIC_URL}/dashboard/profile-settings/notifications",
+                "view_all_url": f"{settings.APP_PUBLIC_URL}/dashboard/analytics",
                 "unsubscribe_url": unsubscribe_url(str(user.id)),
             }
             subject = template_body["subject"]

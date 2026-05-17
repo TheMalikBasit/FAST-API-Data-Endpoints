@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from typing import List, Dict, Any
-from uuid import UUID as PyUUID
 from datetime import datetime, timedelta
 import shutil
 import os
@@ -18,6 +17,7 @@ from app.core.dependencies import get_current_active_user, get_device_by_token
 from app.schemas.events import ViolationResponse, FalsePositiveUpdate, ResolvedUpdate
 from app.core.activity_logger import log_activity
 from app.notifications.triggers.realtime import dispatch as dispatch_realtime_notification
+from app.utils.violation_id import generate_violation_id
 
 router = APIRouter(prefix="/events", tags=["Events"])
 
@@ -89,10 +89,12 @@ async def log_violation(
         raise HTTPException(status_code=500, detail=f"Failed to save image: {str(e)}")
 
     # D. Create Database Entry
+    ts = datetime.utcnow()
     new_violation = Violation(
+        id=generate_violation_id(camera, ts),
         organization_id=device.organization_id,
         camera_id=camera.id,
-        timestamp_utc=datetime.utcnow(),
+        timestamp_utc=ts,
         violation_type=violation_type,
         severity=severity,
         is_false_positive=False,
@@ -167,7 +169,7 @@ async def get_violation_logs(
 # --- 3. NEW: Toggle False Positive ---
 @router.patch("/violations/{violation_id}/false-positive")
 async def toggle_false_positive(
-        violation_id: PyUUID,
+        violation_id: str,
         payload: FalsePositiveUpdate,
         current_user: User = Depends(get_current_active_user),
         db: AsyncSession = Depends(get_db),
@@ -211,7 +213,7 @@ async def toggle_false_positive(
 # --- 4. NEW: Toggle Resolved ---
 @router.patch("/violations/{violation_id}/resolved")
 async def toggle_resolved(
-        violation_id: PyUUID,
+        violation_id: str,
         payload: ResolvedUpdate,
         current_user: User = Depends(get_current_active_user),
         db: AsyncSession = Depends(get_db),

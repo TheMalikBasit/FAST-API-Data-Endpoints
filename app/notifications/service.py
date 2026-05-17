@@ -97,7 +97,7 @@ async def log_send(
     organization_id: UUID,
     kind: str,
     status: str,
-    ref_id: UUID | None = None,
+    ref_id: str | None = None,
     camera_id: UUID | None = None,
     severity: str | None = None,
     error: str | None = None,
